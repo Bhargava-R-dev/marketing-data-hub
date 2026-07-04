@@ -8,8 +8,12 @@ _RELATIVE = {"last_7d": 7, "last_30d": 30, "last_90d": 90}
 def resolve_dates(preset: str | None = None, date_from: date | None = None,
                   date_to: date | None = None, today: date | None = None) -> tuple[date, date]:
     today = today or date.today()
-    if date_from and date_to:
+    if date_from is not None and date_to is not None:
         return date_from, date_to
+    if date_from is not None:
+        return date_from, today          # open-ended range runs to today
+    if date_to is not None:
+        raise ValueError("date_from is required when date_to is given")
     if preset is None:
         return today - timedelta(days=30), today
     if preset in _RELATIVE:

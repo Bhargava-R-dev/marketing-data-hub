@@ -33,3 +33,13 @@ def test_unknown_preset_raises():
 def test_no_args_defaults_to_last_30d():
     df, dt = resolve_dates(None, today=TODAY)
     assert (dt - df).days == 30 and dt == TODAY
+
+
+def test_date_from_alone_runs_to_today():
+    assert resolve_dates(None, date_from=date(2026, 6, 1), today=TODAY) == (
+        date(2026, 6, 1), TODAY)
+
+
+def test_date_to_alone_raises():
+    with pytest.raises(ValueError, match="date_from"):
+        resolve_dates(None, date_to=date(2026, 6, 1), today=TODAY)
