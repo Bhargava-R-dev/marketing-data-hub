@@ -20,8 +20,12 @@ from hub.core.sync import run_sync
 
 def _check_api_key(request: Request) -> None:
     expected = os.environ.get("HUB_API_KEY", "")
+    if not expected:
+        raise HTTPException(status_code=500,
+                            detail="HUB_API_KEY is not set on the server - add it to .env")
+    # plain != is fine here: localhost-bound single-user tool, timing attacks not in scope
     supplied = request.headers.get("X-API-Key") or request.query_params.get("api_key")
-    if not expected or supplied != expected:
+    if supplied != expected:
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 

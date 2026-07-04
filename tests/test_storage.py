@@ -70,3 +70,24 @@ def test_status_counts(store):
     counts = store.row_counts()
     assert counts["ga4"]["rows"] == 1
     assert counts["ga4"]["latest_date"] == d
+
+
+def test_concurrent_replace_rows_is_serialized(store):
+    import threading
+    from datetime import date as d
+    errors = []
+
+    def writer(source, n):
+        try:
+            for i in range(20):
+                store.replace_rows(source, d(2026, 7, 1), d(2026, 7, 1),
+                                   rows_for(source, d(2026, 7, 1), i))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer, args=(f"src{k}", k)) for k in range(4)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+    assert errors == []
+    # connection still healthy afterwards
+    assert len(store.row_counts()) == 4
