@@ -31,3 +31,16 @@ def test_normalize_requires_date_and_account():
     import pytest
     with pytest.raises(Exception):
         normalize("ga4", [{"clicks": 1}])
+
+
+def test_int_ids_are_stringified():
+    rows = normalize("google_ads", [{
+        "date": "2026-07-01", "account_id": 123, "campaign_id": 456}])
+    assert rows[0].account_id == "123"
+    assert rows[0].campaign_id == "456"
+
+
+def test_mismatched_source_raises():
+    import pytest
+    with pytest.raises(ValueError, match="does not match"):
+        normalize("ga4", [{"date": "2026-07-01", "account_id": "a", "source": "gsc"}])
