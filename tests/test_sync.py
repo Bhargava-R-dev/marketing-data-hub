@@ -28,6 +28,12 @@ class FakeConnector(BaseConnector):
         return [{"date": date_from.isoformat(), "account_id": "a", "clicks": 5}]
 
 
+class AuthFailConnector(FakeConnector):
+    def authenticate(self):
+        from hub.connectors.base import AuthError
+        raise AuthError("token revoked", hint="delete secrets/google_token.json")
+
+
 @pytest.fixture()
 def store(tmp_path):
     return Storage(str(tmp_path / "t.duckdb"))
@@ -55,6 +61,19 @@ def test_run_sync_records_error_after_retries(store, monkeypatch):
     run = store.last_runs()["fake"]
     assert run["status"] == "error"
     assert "api down" in run["error_message"]
+
+
+def test_auth_error_fails_fast_with_hint(store, monkeypatch):
+    sleeps = []
+    monkeypatch.setattr("hub.core.sync.time.sleep", lambda s: sleeps.append(s))
+    from hub.connectors.base import AuthError
+    conn = AuthFailConnector()
+    with pytest.raises(AuthError):
+        run_sync(store, conn, date_from=date(2026, 7, 1), date_to=date(2026, 7, 1))
+    assert sleeps == []  # no retries, no backoff
+    run = store.last_runs()["fake"]
+    assert run["status"] == "error"
+    assert "google_token.json" in run["error_message"]  # hint preserved
 
 
 def test_default_window_is_rolling(store):
