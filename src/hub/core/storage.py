@@ -41,12 +41,13 @@ class Storage:
             self.conn.execute(
                 "DELETE FROM metrics WHERE source = ? AND date BETWEEN ? AND ?",
                 [source, date_from, date_to])
-            for r in rows:
-                self.conn.execute(
+            if rows:
+                self.conn.executemany(
                     "INSERT INTO metrics VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    [r.date, r.source, r.account_id, r.account_name, r.campaign_id,
-                     r.campaign, r.impressions, r.clicks, r.spend, r.conversions,
-                     r.conversion_value, r.sessions, r.users, json.dumps(r.extras)])
+                    [[r.date, r.source, r.account_id, r.account_name, r.campaign_id,
+                      r.campaign, r.impressions, r.clicks, r.spend, r.conversions,
+                      r.conversion_value, r.sessions, r.users, json.dumps(r.extras)]
+                     for r in rows])
             self.conn.execute("COMMIT")
         except Exception:
             self.conn.execute("ROLLBACK")
@@ -57,6 +58,8 @@ class Storage:
     def query(self, fields: list[str], date_from: date, date_to: date,
               sources: list[str] | None = None,
               filters: dict[str, str] | None = None) -> list[dict]:
+        """Extras fields are extracted with json_extract_string and always come
+        back as strings — callers must cast numeric extras themselves."""
         for f in fields:
             if not _IDENT.match(f):
                 raise ValueError(f"invalid field name: {f!r}")
@@ -65,6 +68,7 @@ class Storage:
         extra = [f for f in fields if f not in CORE_DIMENSIONS and f not in CORE_METRICS]
 
         sel = [f'"{d}"' for d in dims]
+        # _IDENT validation above also makes this JSON path interpolation safe (no dots/quotes/$)
         sel += [f"json_extract_string(extras, '$.{e}') AS \"{e}\"" for e in extra]
         sel += [f'SUM("{m}") AS "{m}"' for m in mets]
 
