@@ -143,9 +143,9 @@ class BaseConnector(ABC):
   metrics: sessions, totalUsers, conversions, purchaseRevenue.
 - **Search Console:** Search Analytics API — date dimension; clicks, impressions,
   ctr, position (ctr/position → extras).
-- **YouTube Analytics:** day dimension; views→impressions-analog kept in extras,
-  estimatedMinutesWatched, subscribersGained in extras; views/likes mapped per
-  registry.
+- **YouTube Analytics:** day dimension; no mapping into ad-style core metrics —
+  views, likes, estimatedMinutesWatched, subscribersGained all live in `extras`
+  (only `date`, `source`, `account_id`, `account_name` populate core columns).
 - **Google Ads (dormant):** GAQL query per day/campaign — impressions, clicks,
   cost_micros→spend, conversions, conversions_value. Activated by adding
   `developer_token` + `login_customer_id` to config.
