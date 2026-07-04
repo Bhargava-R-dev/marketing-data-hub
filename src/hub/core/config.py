@@ -3,16 +3,20 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConnectorSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     schedule: str = "0 6 * * *"
     window_days: int = 30
     options: dict = Field(default_factory=dict)
 
 
 class ExportConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     fields: list[str]
     sources: list[str] | None = None
@@ -21,6 +25,8 @@ class ExportConfig(BaseModel):
 
 
 class HubConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     db_path: str = "data/hub.duckdb"
     secrets_dir: str = "secrets"
     exports_dir: str = "exports"
@@ -29,5 +35,9 @@ class HubConfig(BaseModel):
 
 
 def load_config(path: str | Path = "config.yaml") -> HubConfig:
-    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Config file not found: {path}. Copy config.yaml.example to config.yaml.")
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return HubConfig(**data)

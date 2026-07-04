@@ -38,3 +38,18 @@ def test_defaults_when_sections_missing(tmp_path: Path):
     assert cfg.exports == []
     assert cfg.secrets_dir == "secrets"
     assert cfg.exports_dir == "exports"
+
+
+def test_unknown_key_fails_loudly(tmp_path: Path):
+    import pytest
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("db_path: x.duckdb\nconnectors:\n  ga4:\n    windw_days: 14\n",
+                        encoding="utf-8")
+    with pytest.raises(Exception, match="windw_days"):
+        load_config(cfg_file)
+
+
+def test_missing_file_message_is_actionable(tmp_path: Path):
+    import pytest
+    with pytest.raises(FileNotFoundError, match="config.yaml.example"):
+        load_config(tmp_path / "nope.yaml")
