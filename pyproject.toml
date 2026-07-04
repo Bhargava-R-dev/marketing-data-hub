@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "marketing-data-hub"
+version = "0.1.0"
+description = "Personal Windsor.ai-style marketing data pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "duckdb>=1.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "apscheduler>=3.10,<4",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "typer>=0.12",
+    "fastmcp>=2.0",
+    "python-dotenv>=1.0",
+    "google-analytics-data>=0.18",
+    "google-api-python-client>=2.120",
+    "google-auth-oauthlib>=1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.27"]
+googleads = ["google-ads>=24.0"]
+meta = ["facebook-business>=19.0"]
+
+[project.scripts]
+hub = "hub.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hub"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

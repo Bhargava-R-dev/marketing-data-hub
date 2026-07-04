@@ -1,0 +1,9 @@
+__pycache__/
+*.egg-info/
+.venv/
+.env
+config.yaml
+secrets/
+data/
+exports/
+.pytest_cache/

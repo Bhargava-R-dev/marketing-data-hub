@@ -1,0 +1,31 @@
+db_path: data/hub.duckdb
+secrets_dir: secrets
+exports_dir: exports
+
+connectors:
+  ga4:
+    schedule: "0 6 * * *"
+    window_days: 30
+    options:
+      property_id: "123456789"
+  gsc:
+    schedule: "0 6 * * *"
+    options:
+      site_url: "sc-domain:example.com"
+  youtube:
+    schedule: "0 6 * * *"
+    options: {}
+  # google_ads:            # activate when you have a developer token
+  #   options:
+  #     customer_id: "1234567890"
+  #     login_customer_id: "1234567890"
+  #     developer_token: "..."
+  # meta_ads:              # activate when you have a Meta app + token
+  #   options:
+  #     ad_account_id: "act_123"
+  #     access_token: "..."
+
+exports:
+  - name: daily_overview
+    fields: [date, source, impressions, clicks, spend, sessions, conversions]
+    date_preset: last_30d
