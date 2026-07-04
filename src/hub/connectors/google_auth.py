@@ -23,20 +23,30 @@ def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None):
     client_path = secrets_dir / "google_client.json"
 
     if token_path.exists():
-        creds = Credentials.from_authorized_user_file(str(token_path), scopes)
-        if creds.valid:
-            return creds
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            token_path.write_text(creds.to_json(), encoding="utf-8")
-            return creds
+        from google.auth.exceptions import RefreshError
+
+        try:
+            creds = Credentials.from_authorized_user_file(str(token_path))
+            # a token cached with older, narrower scopes must trigger re-consent,
+            # otherwise API calls fail later with opaque 403s
+            if set(scopes) - set(creds.scopes or []):
+                creds = None
+            elif creds.valid:
+                return creds
+            elif creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                token_path.write_text(creds.to_json(), encoding="utf-8")
+                return creds
+        except (ValueError, RefreshError):
+            creds = None  # corrupt token file or revoked refresh token -> re-consent
 
     if not client_path.exists():
         raise AuthError(
             "No Google credentials found.",
             hint=("Create an OAuth client (Desktop app) in Google Cloud Console under "
                   "APIs & Services > Credentials, download the JSON, and save it as "
-                  f"{client_path}. Then run: hub doctor"))
+                  f"{client_path}. Then run: hub doctor"
+                  " If this worked before, delete secrets/google_token.json and re-authorize."))
 
     from google_auth_oauthlib.flow import InstalledAppFlow
 
