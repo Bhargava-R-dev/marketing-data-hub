@@ -45,7 +45,11 @@ def sync(source: str = typer.Argument("all"), config: str = CONFIG_OPT,
         except Exception as exc:  # noqa: BLE001
             typer.echo(f"[FAIL] {src}: {exc}")
             failures += 1
-    _run_exports(cfg, storage)
+    try:
+        _run_exports(cfg, storage)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"[FAIL] exports: {exc}")
+        failures += 1
     raise typer.Exit(1 if failures else 0)
 
 
@@ -58,11 +62,15 @@ def backfill(source: str, config: str = CONFIG_OPT,
     from hub.core.storage import Storage
     from hub.core.sync import backfill as run_backfill
 
+    try:
+        date_from = datetime.strptime(from_, "%Y-%m-%d").date()
+        date_to = datetime.strptime(to, "%Y-%m-%d").date() if to else None
+    except ValueError:
+        typer.echo("[FAIL] dates must be YYYY-MM-DD, e.g. --from 2024-01-01")
+        raise typer.Exit(1)
     cfg = _load(config)
     storage = Storage(cfg.db_path)
     connector = build_connector(source, cfg)
-    date_from = datetime.strptime(from_, "%Y-%m-%d").date()
-    date_to = datetime.strptime(to, "%Y-%m-%d").date() if to else None
     n = run_backfill(storage, connector, date_from, date_to)
     typer.echo(f"[OK] {source}: {n} rows backfilled")
 
