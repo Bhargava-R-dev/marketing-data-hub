@@ -39,3 +39,13 @@ def test_query_metrics_tool_logic(tmp_path):
     result = asyncio.run(mcp._call_query_metrics(  # exposed for tests
         fields=["date", "clicks"], date_preset="last_7d"))
     assert result["rows"][0]["clicks"] == 12
+
+
+def test_connection_released_between_calls(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg)
+    asyncio.run(mcp._call_query_metrics(fields=["date", "clicks"], date_preset="last_7d"))
+    # write connection must be obtainable now — would raise if MCP held its RO handle
+    store = Storage(cfg.db_path)
+    store.close()

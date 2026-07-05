@@ -70,7 +70,11 @@ def backfill(source: str, config: str = CONFIG_OPT,
         raise typer.Exit(1)
     cfg = _load(config)
     storage = Storage(cfg.db_path)
-    connector = build_connector(source, cfg)
+    try:
+        connector = build_connector(source, cfg)
+    except KeyError as exc:
+        typer.echo(f"[FAIL] {source}: {exc}")
+        raise typer.Exit(1)
     n = run_backfill(storage, connector, date_from, date_to)
     typer.echo(f"[OK] {source}: {n} rows backfilled")
 

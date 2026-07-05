@@ -19,9 +19,17 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
 
     if not Path(config.db_path).exists():
         Storage(config.db_path).close()  # create schema so read-only open works
-    storage = Storage(config.db_path, read_only=True)
 
-    def _query_metrics(fields: list[str], date_preset: str | None = None,
+    def _with_storage(fn):
+        """Open a short-lived read-only connection so the DB lock is free
+        between tool calls (lets trigger_sync's subprocess write)."""
+        storage = Storage(config.db_path, read_only=True)
+        try:
+            return fn(storage)
+        finally:
+            storage.close()
+
+    def _query_metrics(storage, fields: list[str], date_preset: str | None = None,
                        date_from: str | None = None, date_to: str | None = None,
                        source: str | None = None, campaign: str | None = None) -> dict:
         df, dt = resolve_dates(
@@ -37,13 +45,13 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
 
     # exposed for tests
     async def _call_query_metrics(**kwargs) -> dict:
-        return _query_metrics(**kwargs)
+        return _with_storage(lambda s: _query_metrics(s, **kwargs))
     mcp._call_query_metrics = _call_query_metrics  # type: ignore[attr-defined]
 
     @mcp.tool()
     def list_sources() -> list[dict]:
         """List marketing data sources with sync status, row counts, freshness."""
-        return source_statuses(config, storage)
+        return _with_storage(lambda s: source_statuses(config, s))
 
     @mcp.tool()
     def list_fields(source: str) -> list[dict]:
@@ -57,7 +65,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         """Query unified marketing metrics, e.g. fields=["date","source","clicks","spend"]
         with date_preset one of last_7d/last_30d/last_90d/this_month/last_month/ytd."""
         try:
-            return _query_metrics(fields, date_preset, date_from, date_to, source, campaign)
+            return _with_storage(lambda s: _query_metrics(
+                s, fields, date_preset, date_from, date_to, source, campaign))
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 

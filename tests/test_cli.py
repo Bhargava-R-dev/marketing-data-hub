@@ -46,3 +46,11 @@ def test_backfill_bad_date_fails_cleanly(tmp_path):
                                  "--from", "07/01/2024"])
     assert result.exit_code == 1
     assert "YYYY-MM-DD" in result.output
+
+
+def test_backfill_unconfigured_source_fails_cleanly(tmp_path):
+    cfg = write_config(tmp_path)
+    result = runner.invoke(app, ["backfill", "ga4", "--config", str(cfg),
+                                 "--from", "2024-01-01"])
+    assert result.exit_code == 1
+    assert "not configured" in result.output
