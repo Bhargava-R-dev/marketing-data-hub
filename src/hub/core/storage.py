@@ -131,3 +131,7 @@ class Storage:
                 out[s] = {"started_at": started, "finished_at": finished,
                           "rows_written": rows, "status": status, "error_message": err}
             return out
+
+    def close(self) -> None:
+        with self._lock:
+            self.conn.close()
