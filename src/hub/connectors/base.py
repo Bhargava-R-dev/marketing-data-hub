@@ -40,6 +40,21 @@ class FieldRegistry:
                  "description": s.description} for s in self.specs]
 
 
+def resolve_targets(options: dict, plural_key: str, singular_key: str) -> list[str]:
+    """Connector options may name one target (property_id: "123") or many
+    (property_ids: ["123", "456"]). Returns the list either way."""
+    targets = options.get(plural_key) or []
+    if isinstance(targets, str):
+        targets = [targets]
+    single = options.get(singular_key)
+    if single and single not in targets:
+        targets = [*targets, single]
+    if not targets:
+        raise KeyError(
+            f"connector options need {singular_key!r} or {plural_key!r}")
+    return [str(t) for t in targets]
+
+
 class BaseConnector(ABC):
     id: ClassVar[str]
     fields: ClassVar[FieldRegistry]

@@ -8,7 +8,10 @@ Windsor-style REST API, scheduled CSV exports, and an MCP server for Claude.
 
 1. `python -m pip install -e ".[dev]"`
 2. Copy `config.yaml.example` → `config.yaml`; fill in your GA4 `property_id`
-   and Search Console `site_url`.
+   and Search Console `site_url`. Have multiple GA4 properties or Search Console
+   sites under the same Google login? Use `property_ids: [...]` / `site_urls: [...]`
+   instead — all of them sync, and every row is tagged with its own `account_id`
+   so they stay distinguishable downstream.
 3. Copy `.env.example` → `.env`; set a random `HUB_API_KEY`.
 4. Google Cloud Console → create a project → enable **Google Analytics Data API**,
    **Search Console API**, **YouTube Analytics API** → create an **OAuth client

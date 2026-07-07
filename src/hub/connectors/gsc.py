@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Iterable
 
-from hub.connectors.base import BaseConnector, FieldRegistry, FieldSpec
+from hub.connectors.base import BaseConnector, FieldRegistry, FieldSpec, resolve_targets
 from hub.connectors.google_auth import get_credentials
 
 GSC_FIELDS = FieldRegistry([
@@ -37,10 +37,13 @@ class SearchConsoleConnector(BaseConnector):
     def extract(self, date_from: date, date_to: date) -> Iterable[dict]:
         from googleapiclient.discovery import build
 
-        site_url = self.settings.options["site_url"]
+        site_urls = resolve_targets(self.settings.options, "site_urls", "site_url")
         service = build("searchconsole", "v1", credentials=self._creds,
                         cache_discovery=False)
         body = {"startDate": date_from.isoformat(), "endDate": date_to.isoformat(),
                 "dimensions": ["date"], "rowLimit": 25000}
-        resp = service.searchanalytics().query(siteUrl=site_url, body=body).execute()
-        return parse_gsc_response(resp, site_url)
+        results: list[dict] = []
+        for site_url in site_urls:
+            resp = service.searchanalytics().query(siteUrl=site_url, body=body).execute()
+            results.extend(parse_gsc_response(resp, site_url))
+        return results

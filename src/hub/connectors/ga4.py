@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Iterable
 
-from hub.connectors.base import BaseConnector, FieldRegistry, FieldSpec
+from hub.connectors.base import BaseConnector, FieldRegistry, FieldSpec, resolve_targets
 from hub.connectors.google_auth import get_credentials
 
 GA4_FIELDS = FieldRegistry([
@@ -46,16 +46,19 @@ class GA4Connector(BaseConnector):
         from google.analytics.data_v1beta.types import (
             DateRange, Dimension, Metric, RunReportRequest, RunReportResponse)
 
-        property_id = self.settings.options["property_id"]
+        property_ids = resolve_targets(self.settings.options, "property_ids", "property_id")
         client = BetaAnalyticsDataClient(credentials=self._creds)
-        request = RunReportRequest(
-            property=f"properties/{property_id}",
-            dimensions=[Dimension(name=s.native) for s in GA4_FIELDS.specs if s.dimension],
-            metrics=[Metric(name=s.native) for s in GA4_FIELDS.specs if not s.dimension],
-            date_ranges=[DateRange(start_date=date_from.isoformat(),
-                                   end_date=date_to.isoformat())],
-            limit=250000,
-        )
-        response = client.run_report(request)
-        report = RunReportResponse.to_dict(response, preserving_proto_field_name=False)
-        return parse_ga4_report(report, property_id)
+        results: list[dict] = []
+        for property_id in property_ids:
+            request = RunReportRequest(
+                property=f"properties/{property_id}",
+                dimensions=[Dimension(name=s.native) for s in GA4_FIELDS.specs if s.dimension],
+                metrics=[Metric(name=s.native) for s in GA4_FIELDS.specs if not s.dimension],
+                date_ranges=[DateRange(start_date=date_from.isoformat(),
+                                       end_date=date_to.isoformat())],
+                limit=250000,
+            )
+            response = client.run_report(request)
+            report = RunReportResponse.to_dict(response, preserving_proto_field_name=False)
+            results.extend(parse_ga4_report(report, property_id))
+        return results
