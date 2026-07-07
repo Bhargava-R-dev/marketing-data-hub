@@ -29,3 +29,9 @@ def test_resolve_targets_single_plural_and_mixed():
     assert resolve_targets({"property_ids": [1, 2]}, "property_ids", "property_id") == ["1", "2"]
     with pytest.raises(KeyError, match="property_id"):
         resolve_targets({}, "property_ids", "property_id")
+
+
+def test_resolve_targets_dedupes_across_types():
+    from hub.connectors.base import resolve_targets
+    assert resolve_targets({"property_ids": [1, 2], "property_id": "2"},
+                           "property_ids", "property_id") == ["1", "2"]

@@ -46,13 +46,16 @@ def resolve_targets(options: dict, plural_key: str, singular_key: str) -> list[s
     targets = options.get(plural_key) or []
     if isinstance(targets, str):
         targets = [targets]
+    targets = [str(t) for t in targets]
     single = options.get(singular_key)
-    if single and single not in targets:
-        targets = [*targets, single]
+    if single is not None:
+        single = str(single)
+        if single not in targets:
+            targets.append(single)
     if not targets:
         raise KeyError(
             f"connector options need {singular_key!r} or {plural_key!r}")
-    return [str(t) for t in targets]
+    return targets
 
 
 class BaseConnector(ABC):
