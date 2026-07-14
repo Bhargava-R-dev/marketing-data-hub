@@ -20,6 +20,7 @@ class ExportConfig(BaseModel):
     name: str
     fields: list[str]
     sources: list[str] | None = None
+    report: str = "core"
     date_preset: str = "last_30d"
     filename: str | None = None  # defaults to <name>.csv
 

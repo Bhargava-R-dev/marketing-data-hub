@@ -9,7 +9,8 @@ import duckdb
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response
 
-from hub.connectors.catalog import ALL_CONNECTORS, build_connector, connector_class
+from hub.connectors.catalog import (ALL_CONNECTORS, build_connector, connector_class,
+                                    extra_metric_fields)
 from hub.core.config import HubConfig
 from hub.core.models import CORE_DIMENSIONS, CORE_METRICS
 from hub.core.presets import resolve_dates
@@ -34,7 +35,8 @@ def _known_fields(config: HubConfig, source: str) -> set[str]:
     sources = ALL_CONNECTORS if source == "all" else [source]
     for s in sources:
         try:
-            known |= set(connector_class(s).fields.names())
+            for registry in connector_class(s).get_reports().values():
+                known |= set(registry.names())
         except (KeyError, ImportError):
             continue
     return known
@@ -49,10 +51,24 @@ def create_app(config: HubConfig, storage: Storage | None = None) -> FastAPI:
         return source_statuses(config, storage)
 
     @app.get("/connectors/{source}/fields")
-    def list_fields(source: str) -> list[dict]:
+    def list_fields(source: str, report: str = "core") -> list[dict]:
         if source not in ALL_CONNECTORS:
             raise HTTPException(status_code=404, detail=f"unknown source {source!r}")
-        return connector_class(source).fields.to_dict()
+        reports = connector_class(source).get_reports()
+        if report not in reports:
+            raise HTTPException(status_code=404,
+                                detail=f"unknown report {report!r} for {source!r} "
+                                       f"(available: {list(reports)})")
+        return reports[report].to_dict()
+
+    @app.get("/connectors/{source}/reports")
+    def list_reports(source: str) -> list[dict]:
+        if source not in ALL_CONNECTORS:
+            raise HTTPException(status_code=404, detail=f"unknown source {source!r}")
+        return [{"report": name, "description": reg.description,
+                 "dimensions": [s.name for s in reg.dimensions()],
+                 "metrics": [s.name for s in reg.metrics()]}
+                for name, reg in connector_class(source).get_reports().items()]
 
     @app.get("/connectors/{source}/data")
     def get_data(source: str,
@@ -62,6 +78,7 @@ def create_app(config: HubConfig, storage: Storage | None = None) -> FastAPI:
                  date_preset: str | None = None,
                  campaign: str | None = None,
                  account_id: str | None = None,
+                 report: str = "core",
                  format: str = "json"):
         if source != "all" and source not in ALL_CONNECTORS:
             raise HTTPException(status_code=404, detail=f"unknown source {source!r}")
@@ -81,7 +98,9 @@ def create_app(config: HubConfig, storage: Storage | None = None) -> FastAPI:
             filters["account_id"] = account_id
         sources = None if source == "all" else [source]
         try:
-            rows = storage.query(field_list, df, dt, sources=sources, filters=filters)
+            rows = storage.query(field_list, df, dt, sources=sources, filters=filters,
+                                 report=report,
+                                 extra_metrics=extra_metric_fields(report, sources))
         except duckdb.IOException as exc:
             raise HTTPException(status_code=503, detail=f"database unavailable: {exc}")
         if format == "csv":

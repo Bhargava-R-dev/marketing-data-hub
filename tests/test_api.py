@@ -81,3 +81,40 @@ def test_csv_format(client):
                            "format": "csv"})
     assert r.headers["content-type"].startswith("text/csv")
     assert r.text.splitlines()[0] == "date,clicks"
+
+
+def test_reports_endpoint(client):
+    body = client.get("/connectors/gsc/reports", headers={"X-API-Key": KEY}).json()
+    names = {r["report"] for r in body}
+    assert {"core", "queries", "pages", "devices", "countries"} <= names
+    queries = next(r for r in body if r["report"] == "queries")
+    assert "query" in queries["dimensions"]
+
+
+def test_fields_endpoint_per_report(client):
+    body = client.get("/connectors/ga4/fields", headers={"X-API-Key": KEY},
+                      params={"report": "channels"}).json()
+    assert "channel" in [f["name"] for f in body]
+    r = client.get("/connectors/ga4/fields", headers={"X-API-Key": KEY},
+                   params={"report": "bogus"})
+    assert r.status_code == 404
+
+
+def test_data_endpoint_report_param(client, tmp_path):
+    # breakdown rows must only be reachable via their report, never via core
+    r = client.get("/connectors/gsc/data", headers={"X-API-Key": KEY},
+                   params={"fields": "date,query,clicks", "date_preset": "ytd",
+                           "report": "queries"})
+    assert r.status_code == 200
+    assert r.json()["data"] == []  # nothing synced into 'queries' in this fixture
+    r = client.get("/connectors/gsc/data", headers={"X-API-Key": KEY},
+                   params={"fields": "date,clicks", "date_preset": "ytd"})
+    assert r.json()["data"][0]["clicks"] == 30  # core totals unaffected
+
+
+def test_report_fields_accepted_by_validation(client):
+    # 'channel' only exists in the ga4 channels report registry
+    r = client.get("/connectors/ga4/data", headers={"X-API-Key": KEY},
+                   params={"fields": "date,channel,sessions", "date_preset": "ytd",
+                           "report": "channels"})
+    assert r.status_code == 200

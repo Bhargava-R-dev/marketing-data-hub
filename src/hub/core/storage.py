@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import csv
 import json
+import os
 import re
+import tempfile
 import threading
 from datetime import date, datetime
 from pathlib import Path
@@ -12,12 +15,26 @@ from hub.core.models import CORE_DIMENSIONS, CORE_METRICS, UnifiedRow
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+_NULL = "\\N"  # csv marker for NULL (plain empty string stays a string)
+
+_METRIC_COLUMNS = {  # insert order; extras handled separately
+    "date": "DATE", "source": "VARCHAR", "report": "VARCHAR",
+    "account_id": "VARCHAR", "account_name": "VARCHAR",
+    "campaign_id": "VARCHAR", "campaign": "VARCHAR",
+    "impressions": "BIGINT", "clicks": "BIGINT", "spend": "DOUBLE",
+    "conversions": "DOUBLE", "conversion_value": "DOUBLE",
+    "sessions": "BIGINT", "users": "BIGINT", "extras": "VARCHAR",
+}
+
 _SCHEMA = [
     """CREATE TABLE IF NOT EXISTS metrics (
-        date DATE, source VARCHAR, account_id VARCHAR, account_name VARCHAR,
+        date DATE, source VARCHAR, report VARCHAR DEFAULT 'core',
+        account_id VARCHAR, account_name VARCHAR,
         campaign_id VARCHAR, campaign VARCHAR,
         impressions BIGINT, clicks BIGINT, spend DOUBLE, conversions DOUBLE,
         conversion_value DOUBLE, sessions BIGINT, users BIGINT, extras JSON)""",
+    # migration for DBs created before multi-report support (fills 'core')
+    "ALTER TABLE metrics ADD COLUMN IF NOT EXISTS report VARCHAR DEFAULT 'core'",
     "CREATE SEQUENCE IF NOT EXISTS sync_runs_seq",
     """CREATE TABLE IF NOT EXISTS sync_runs (
         id BIGINT DEFAULT nextval('sync_runs_seq'), source VARCHAR,
@@ -37,59 +54,103 @@ class Storage:
 
     # ---- writes -------------------------------------------------------
     def replace_rows(self, source: str, date_from: date, date_to: date,
-                     rows: list[UnifiedRow]) -> int:
+                     rows: list[UnifiedRow], report: str = "core") -> int:
+        """Transactionally replace one (source, report) slice of a date range.
+
+        Bulk-loads through a temp CSV + read_csv: parameter-bound executemany
+        is ~16ms/row on some Windows setups, which turns breakdown-report
+        volumes (tens of thousands of rows) into hours."""
         with self._lock:
+            csv_path = self._write_rows_csv(rows, report) if rows else None
             self.conn.execute("BEGIN TRANSACTION")
             try:
                 self.conn.execute(
-                    "DELETE FROM metrics WHERE source = ? AND date BETWEEN ? AND ?",
-                    [source, date_from, date_to])
-                if rows:
-                    self.conn.executemany(
-                        "INSERT INTO metrics VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        [[r.date, r.source, r.account_id, r.account_name, r.campaign_id,
-                          r.campaign, r.impressions, r.clicks, r.spend, r.conversions,
-                          r.conversion_value, r.sessions, r.users, json.dumps(r.extras)]
-                         for r in rows])
+                    "DELETE FROM metrics WHERE source = ? AND report = ? "
+                    "AND date BETWEEN ? AND ?",
+                    [source, report, date_from, date_to])
+                if csv_path:
+                    cols = ", ".join(_METRIC_COLUMNS)
+                    spec = ", ".join(f"'{c}': '{t}'" for c, t in _METRIC_COLUMNS.items())
+                    self.conn.execute(
+                        f"""INSERT INTO metrics ({cols})
+                            SELECT * REPLACE (CAST(extras AS JSON) AS extras)
+                            FROM read_csv('{csv_path.as_posix()}', header = true,
+                                          nullstr = '{_NULL}', columns = {{{spec}}})""")
                 self.conn.execute("COMMIT")
             except Exception:
                 self.conn.execute("ROLLBACK")
                 raise
+            finally:
+                if csv_path:
+                    os.unlink(csv_path)
             return len(rows)
+
+    @staticmethod
+    def _write_rows_csv(rows: list[UnifiedRow], report: str) -> Path:
+        fh = tempfile.NamedTemporaryFile(
+            mode="w", newline="", encoding="utf-8", suffix=".csv", delete=False)
+        try:
+            with fh:
+                writer = csv.writer(fh)
+                writer.writerow(_METRIC_COLUMNS)
+                for r in rows:
+                    vals = [r.date.isoformat(), r.source, report, r.account_id,
+                            r.account_name, r.campaign_id, r.campaign, r.impressions,
+                            r.clicks, r.spend, r.conversions, r.conversion_value,
+                            r.sessions, r.users, json.dumps(r.extras)]
+                    writer.writerow(_NULL if v is None else v for v in vals)
+        except Exception:
+            os.unlink(fh.name)
+            raise
+        return Path(fh.name)
 
     # ---- queries ------------------------------------------------------
     def query(self, fields: list[str], date_from: date, date_to: date,
               sources: list[str] | None = None,
-              filters: dict[str, str] | None = None) -> list[dict]:
-        """Extras fields are extracted with json_extract_string and always come
-        back as strings — callers must cast numeric extras themselves."""
+              filters: dict[str, str] | None = None,
+              report: str = "core",
+              extra_metrics: set[str] | None = None) -> list[dict]:
+        """Extras fields named in extra_metrics are SUMmed as numbers; other
+        extras are group-by dimensions extracted with json_extract_string and
+        come back as strings (callers cast non-additive extras themselves).
+
+        Always filters on one report: rows from different reports of the same
+        source are different granularities and must never be summed together."""
         with self._lock:
             for f in fields:
                 if not _IDENT.match(f):
                     raise ValueError(f"invalid field name: {f!r}")
+            extra_metrics = extra_metrics or set()
             dims = [f for f in fields if f in CORE_DIMENSIONS]
             mets = [f for f in fields if f in CORE_METRICS]
             extra = [f for f in fields if f not in CORE_DIMENSIONS and f not in CORE_METRICS]
+            extra_dims = [e for e in extra if e not in extra_metrics]
+            extra_mets = [e for e in extra if e in extra_metrics]
 
             sel = [f'"{d}"' for d in dims]
             # _IDENT validation above also makes this JSON path interpolation safe (no dots/quotes/$)
-            sel += [f"json_extract_string(extras, '$.{e}') AS \"{e}\"" for e in extra]
+            sel += [f"json_extract_string(extras, '$.{e}') AS \"{e}\"" for e in extra_dims]
+            sel += [f"SUM(TRY_CAST(json_extract_string(extras, '$.{e}') AS DOUBLE))"
+                    f" AS \"{e}\"" for e in extra_mets]
             sel += [f'SUM("{m}") AS "{m}"' for m in mets]
 
-            where = ["date BETWEEN ? AND ?"]
-            params: list = [date_from, date_to]
+            where = ["date BETWEEN ? AND ?", "report = ?"]
+            params: list = [date_from, date_to, report]
             if sources:
                 where.append(f"source IN ({','.join(['?'] * len(sources))})")
                 params.extend(sources)
             for key, val in (filters or {}).items():
-                if key not in CORE_DIMENSIONS:
+                if not _IDENT.match(key):
                     raise ValueError(f"invalid filter: {key!r}")
-                where.append(f'"{key}" = ?')
-                params.append(val)
+                if key in CORE_DIMENSIONS:
+                    where.append(f'"{key}" = ?')
+                else:  # extras dimension (event, query, channel, device, ...)
+                    where.append(f"json_extract_string(extras, '$.{key}') = ?")
+                params.append(str(val))
 
-            group_cols = dims + extra
+            group_cols = dims + extra_dims
             sql = f"SELECT {', '.join(sel)} FROM metrics WHERE {' AND '.join(where)}"
-            if group_cols and mets:
+            if group_cols and (mets or extra_mets):
                 sql += f" GROUP BY {', '.join(str(i + 1) for i in range(len(group_cols)))}"
             if group_cols:
                 sql += f" ORDER BY {', '.join(str(i + 1) for i in range(len(group_cols)))}"
@@ -100,15 +161,26 @@ class Storage:
     def row_counts(self) -> dict[str, dict]:
         with self._lock:
             cur = self.conn.execute(
-                "SELECT source, COUNT(*), MAX(date) FROM metrics GROUP BY source")
+                """SELECT source, COUNT(*), MAX(date) FROM metrics
+                   WHERE report = 'core' GROUP BY source""")
             return {s: {"rows": n, "latest_date": latest} for s, n, latest in cur.fetchall()}
+
+    def report_coverage(self) -> list[dict]:
+        """Rows and date window per (source, report) — shows what's synced."""
+        with self._lock:
+            cur = self.conn.execute(
+                """SELECT source, report, COUNT(*), MIN(date), MAX(date)
+                   FROM metrics GROUP BY 1, 2 ORDER BY 1, 2""")
+            return [{"source": s, "report": rep, "rows": n,
+                     "first_date": first, "latest_date": latest}
+                    for s, rep, n, first, latest in cur.fetchall()]
 
     def accounts(self) -> list[dict]:
         """Distinct accounts/brands in the data with their coverage window."""
         with self._lock:
             cur = self.conn.execute(
                 """SELECT source, account_id, account_name, COUNT(*), MIN(date), MAX(date)
-                   FROM metrics GROUP BY 1, 2, 3 ORDER BY 1, 3""")
+                   FROM metrics WHERE report = 'core' GROUP BY 1, 2, 3 ORDER BY 1, 3""")
             return [{"source": s, "account_id": aid, "account_name": name,
                      "rows": n, "first_date": first, "latest_date": latest}
                     for s, aid, name, n, first, latest in cur.fetchall()]

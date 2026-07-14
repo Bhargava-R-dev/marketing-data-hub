@@ -4,6 +4,41 @@ Personal Windsor.ai-style pipeline: pulls GA4, Search Console, YouTube (and, onc
 activated, Google Ads + Meta Ads) into a unified DuckDB schema, queryable via a
 Windsor-style REST API, scheduled CSV exports, and an MCP server for Claude.
 
+## Reports (analysis shapes)
+
+Each source syncs several named *reports* — different dimensional shapes of the
+same data, stored side by side and never mixed (mixing granularities would
+double-count):
+
+| Source | Report | Answers |
+|---|---|---|
+| ga4 | `core` | daily campaign totals (sessions, users, conversions, revenue) |
+| ga4 | `channels` | traffic mix: organic vs paid vs direct, engagement, pageviews |
+| ga4 | `landing_pages` | entry-page performance per channel |
+| ga4 | `pages` | page behaviour: views, engagement time, events per path |
+| ga4 | `audience` | device × country segmentation |
+| ga4 | `visitors` | new vs returning (cohort-lite) |
+| gsc | `core` | exact daily search totals per site |
+| gsc | `queries` | per-query performance (branded split = string-match) |
+| gsc | `pages` | per-URL search performance |
+| gsc | `devices` / `countries` | mobile/desktop and geo splits |
+| ga4 | `events` | per-event counts by name (brand-specific: form_submit, call_click...) |
+
+Pass `report=<name>` to the API/MCP `query_metrics`; default is `core`.
+MCP `query_metrics` also supports `compare=` (prev_period / prev_day / prev_week /
+prev_month / prev_year — returns value, previous, and %-change per metric for any
+date range) and `filters=` (exact match on any dimension incl. report extras,
+e.g. `{"event": "form_submit"}` or `{"device": "MOBILE"}`).
+Rates are computed, not stored: engagement rate = engaged_sessions/sessions,
+ctr = clicks/impressions, avg engagement time = engagement_seconds/pageviews.
+GSC breakdown reports undercount totals slightly (Google anonymises rare
+queries) — use `core` for toplines. True user-level cohorts need the GA4
+BigQuery export; `visitors` + the live tools cover cohort-lite analysis.
+
+For anything the synced reports don't cover, the MCP tools `query_ga4_live`
+and `query_gsc_live` pass arbitrary dimension/metric combinations straight to
+the APIs on demand.
+
 ## Setup
 
 1. `python -m pip install -e ".[dev]"`
@@ -35,8 +70,9 @@ Windsor-style REST API, scheduled CSV exports, and an MCP server for Claude.
 GET /connectors/all/data?fields=date,source,clicks,spend&date_preset=last_30d
 X-API-Key: <HUB_API_KEY>
 ```
-`format=csv` for CSV. `/connectors` lists sources; `/connectors/{source}/fields`
-lists fields.
+`format=csv` for CSV, `report=<name>` for a breakdown report. `/connectors`
+lists sources; `/connectors/{source}/reports` lists report shapes;
+`/connectors/{source}/fields?report=<name>` lists fields.
 
 ## Claude MCP
 

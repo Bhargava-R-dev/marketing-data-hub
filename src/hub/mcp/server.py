@@ -9,9 +9,10 @@ from pathlib import Path
 import duckdb
 from fastmcp import FastMCP
 
-from hub.connectors.catalog import connector_class
+from hub.connectors.catalog import connector_class, extra_metric_fields
 from hub.core.config import HubConfig
-from hub.core.presets import resolve_dates
+from hub.core.models import CORE_METRICS
+from hub.core.presets import COMPARE_MODES, resolve_dates, shift_range
 from hub.core.status import source_statuses
 from hub.core.storage import Storage
 
@@ -19,6 +20,20 @@ _LOCK_RETRIES = 3
 _LOCK_WAIT_S = 0.4
 # a 'running' sync_runs row older than this is a crashed sync, not a live one
 _STALE_RUNNING = timedelta(minutes=15)
+
+
+def _with_deltas(current: dict, previous: dict, metric_names: list[str]) -> dict:
+    """Merge one row's current + previous metrics into value/prev/change_pct."""
+    out = dict(current)
+    for m in metric_names:
+        cur, prev = current.get(m), previous.get(m)
+        out[m] = cur
+        out[f"{m}_prev"] = prev
+        if cur is not None and prev:
+            out[f"{m}_change_pct"] = round((float(cur) - float(prev)) / float(prev) * 100, 1)
+        else:
+            out[f"{m}_change_pct"] = None
+    return out
 
 
 def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
@@ -54,12 +69,16 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
     def _query_metrics(storage, fields: list[str], date_preset: str | None = None,
                        date_from: str | None = None, date_to: str | None = None,
                        source: str | None = None, campaign: str | None = None,
-                       brand: str | None = None) -> dict:
+                       brand: str | None = None, report: str = "core",
+                       filters: dict | None = None,
+                       compare: str | None = None) -> dict:
         df, dt = resolve_dates(
             date_preset,
             date.fromisoformat(date_from) if date_from else None,
             date.fromisoformat(date_to) if date_to else None)
-        filters = {"campaign": campaign} if campaign else None
+        filters = dict(filters or {})
+        if campaign:
+            filters["campaign"] = campaign
 
         matched_names: list[str] = []
         if brand:
@@ -73,13 +92,52 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             if "account_name" not in fields:
                 fields = [*fields, "account_name"]
 
-        rows = storage.query(fields, df, dt,
-                             sources=[source] if source else None, filters=filters)
-        if matched_names:
-            rows = [r for r in rows if r.get("account_name") in matched_names]
-        result = {"date_from": df.isoformat(), "date_to": dt.isoformat(),
-                  "rows": [{k: (v.isoformat() if isinstance(v, date) else v)
-                            for k, v in r.items()} for r in rows]}
+        result: dict = {}
+        if compare:
+            if compare not in COMPARE_MODES:
+                return {"error": f"unknown compare mode {compare!r}",
+                        "available_modes": list(COMPARE_MODES)}
+            if "date" in fields:
+                # per-date rows can't be matched across periods; compare totals
+                fields = [f for f in fields if f != "date"]
+                result["note"] = "date dropped from fields: compare aggregates over the range"
+
+        sources = [source] if source else None
+        extra_mets = extra_metric_fields(report, sources)
+
+        def run(a: date, b: date) -> list[dict]:
+            rows = storage.query(fields, a, b, sources=sources, filters=filters or None,
+                                 report=report, extra_metrics=extra_mets)
+            if matched_names:
+                rows = [r for r in rows if r.get("account_name") in matched_names]
+            return rows
+
+        rows = run(df, dt)
+        if compare:
+            pf, pt = shift_range(df, dt, compare)
+            metric_names = [f for f in fields if f in CORE_METRICS or f in extra_mets]
+            dim_names = [f for f in fields if f not in metric_names]
+            prev_by_key = {tuple(r.get(d) for d in dim_names): r for r in run(pf, pt)}
+            seen = set()
+            merged = []
+            for r in rows:
+                key = tuple(r.get(d) for d in dim_names)
+                seen.add(key)
+                prev = prev_by_key.get(key, {})
+                merged.append(_with_deltas(r, prev, metric_names))
+            for key, prev in prev_by_key.items():  # in previous period only
+                if key not in seen:
+                    gone = {d: prev.get(d) for d in dim_names}
+                    merged.append(_with_deltas(gone, prev, metric_names))
+            rows = merged
+            result["compare"] = compare
+            result["compare_date_from"] = pf.isoformat()
+            result["compare_date_to"] = pt.isoformat()
+
+        result.update({
+            "date_from": df.isoformat(), "date_to": dt.isoformat(),
+            "rows": [{k: (v.isoformat() if isinstance(v, date) else v)
+                      for k, v in r.items()} for r in rows]})
         if matched_names:
             result["matched_brands"] = matched_names
         return result
@@ -113,17 +171,88 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             for a in s.accounts()])
 
     @mcp.tool()
-    def list_fields(source: str) -> list[dict]:
-        """List queryable fields for one source (ga4, gsc, youtube, google_ads, meta_ads)."""
-        return connector_class(source).fields.to_dict()
+    def list_fields(source: str, report: str = "core") -> list[dict]:
+        """List queryable fields for one report of one source. Use list_reports
+        first to see which reports exist per source."""
+        reports = connector_class(source).get_reports()
+        if report not in reports:
+            return [{"error": f"unknown report {report!r} for {source!r}",
+                     "available_reports": list(reports)}]
+        return reports[report].to_dict()
+
+    @mcp.tool()
+    def list_reports(source: str | None = None) -> list[dict]:
+        """List the available report shapes per source with their dimensions,
+        metrics, and what analyses they answer, plus how much data is synced
+        for each. Call this before query_metrics when the question needs more
+        than daily totals (channels, pages, queries, devices, geo, ...)."""
+        coverage = {(c["source"], c["report"]): c
+                    for c in _with_storage(lambda s: s.report_coverage())}
+        out = []
+        for src in (
+                [source] if source else list(config.connectors)):
+            try:
+                reports = connector_class(src).get_reports()
+            except (KeyError, ImportError):
+                continue
+            for name, reg in reports.items():
+                cov = coverage.get((src, name))
+                out.append({
+                    "source": src, "report": name,
+                    "description": reg.description,
+                    "dimensions": [s.name for s in reg.dimensions()],
+                    "metrics": [s.name for s in reg.metrics()],
+                    "rows_synced": cov["rows"] if cov else 0,
+                    "first_date": cov["first_date"].isoformat() if cov else None,
+                    "latest_date": cov["latest_date"].isoformat() if cov else None,
+                })
+        return out
 
     @mcp.tool()
     def query_metrics(fields: list[str], date_preset: str | None = None,
                       date_from: str | None = None, date_to: str | None = None,
                       source: str | None = None, campaign: str | None = None,
-                      brand: str | None = None) -> dict:
+                      brand: str | None = None, report: str = "core",
+                      filters: dict | None = None,
+                      compare: str | None = None) -> dict:
         """Query unified marketing metrics, e.g. fields=["date","source","clicks","spend"]
         with date_preset one of last_7d/last_30d/last_90d/this_month/last_month/ytd.
+
+        COMPARISONS: pass compare= to get each metric as value, <metric>_prev and
+        <metric>_change_pct against a shifted period. Works with any date range:
+        - "prev_period": the equal-length range immediately before (use with a
+          calendar month range for MoM, a week range for WoW)
+        - "prev_day" / "prev_week": same range shifted 1 day / 7 days (weekday-aligned)
+        - "prev_month" / "prev_year": same range shifted one calendar month / year
+        The 'date' field is dropped in compare mode (totals over the range).
+
+        FILTERS: filters={"field": "value"} exact-matches any dimension, including
+        report extras — e.g. report="events", filters={"event": "form_submit"} for
+        one specific event, or report="queries", filters={"device": "MOBILE"}.
+        Event names are brand-specific: first query report="events" with
+        fields=["event","events"] to discover a brand's event names, then filter.
+
+        PICKING THE RIGHT REPORT (see list_reports for full detail; pass
+        source= when using a non-core report):
+        - overall trends / totals -> report="core" (default; the only report
+          whose GSC numbers are exact totals)
+        - traffic mix, organic vs paid -> source="ga4", report="channels"
+        - landing-page / entry-page analysis -> source="ga4", report="landing_pages"
+        - page behaviour (views, engagement) -> source="ga4", report="pages"
+        - device / country segmentation -> source="ga4", report="audience"
+          (or source="gsc", report="devices"/"countries" for search data)
+        - new vs returning visitors -> source="ga4", report="visitors"
+        - specific conversion events (form submits, call clicks, brand-specific
+          names) -> source="ga4", report="events" (+ filters={"event": ...})
+        - search queries, branded vs non-branded -> source="gsc", report="queries"
+          then string-match the query field against brand terms
+        - top pages in search -> source="gsc", report="pages"
+        Never compare or add numbers across different reports of the same
+        source; granularities differ. GSC breakdown reports undercount totals
+        slightly (Google anonymises rare queries) — use core for toplines.
+        Rates are computed, not stored: engagement rate = engaged_sessions /
+        sessions; ctr = clicks / impressions; avg engagement time =
+        engagement_seconds / pageviews.
 
         To answer questions about a specific brand/website (e.g. "Vetrotech traffic
         last week"), pass brand="vetrotech" — it matches account_name
@@ -137,7 +266,100 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         GA4 data (sessions/users/conversions) is current through yesterday/today."""
         return _query_metrics_safe(
             fields=fields, date_preset=date_preset, date_from=date_from,
-            date_to=date_to, source=source, campaign=campaign, brand=brand)
+            date_to=date_to, source=source, campaign=campaign, brand=brand,
+            report=report, filters=filters, compare=compare)
+
+    def _resolve_target(connector: str, plural_key: str, target: str | None,
+                        brand: str | None) -> str | dict:
+        """Turn a brand name or explicit id into one configured GA4 property /
+        GSC site. Returns the target string, or an error dict."""
+        opts = config.connectors[connector].options if connector in config.connectors else {}
+        targets = [str(t) for t in (opts.get(plural_key) or [])]
+        labels: dict = opts.get("labels", {})
+        if target:
+            return str(target)
+        if brand:
+            hits = [t for t in targets
+                    if brand.lower() in str(labels.get(t, t)).lower()]
+            if len(hits) == 1:
+                return hits[0]
+            return {"error": f"brand {brand!r} matched {len(hits)} configured "
+                             f"targets: {hits or list(labels.values())}",
+                    "hint": "pass the explicit id/url instead"}
+        return {"error": "pass either brand= or an explicit target",
+                "available": {t: labels.get(t, t) for t in targets}}
+
+    @mcp.tool()
+    def query_ga4_live(dimensions: list[str], metrics: list[str],
+                       date_from: str, date_to: str,
+                       property_id: str | None = None, brand: str | None = None,
+                       limit: int = 1000) -> dict:
+        """Escape hatch: run any GA4 report live against the API with arbitrary
+        native GA4 dimension/metric names (e.g. dimensions=["pagePath","city"],
+        metrics=["screenPageViews"]) — for analyses the synced reports don't
+        cover. Slower than query_metrics and not stored; prefer query_metrics
+        when a synced report answers the question. Pass brand= (e.g. "vetrotech")
+        or an explicit property_id. Dates are YYYY-MM-DD."""
+        try:
+            from google.analytics.data_v1beta import BetaAnalyticsDataClient
+            from google.analytics.data_v1beta.types import (
+                DateRange, Dimension, Metric, RunReportRequest)
+
+            from hub.connectors.google_auth import get_credentials
+
+            target = _resolve_target("ga4", "property_ids", property_id, brand)
+            if isinstance(target, dict):
+                return target
+            creds = get_credentials(config.secrets_dir)
+            client = BetaAnalyticsDataClient(credentials=creds)
+            response = client.run_report(RunReportRequest(
+                property=f"properties/{target}",
+                dimensions=[Dimension(name=d) for d in dimensions],
+                metrics=[Metric(name=m) for m in metrics],
+                date_ranges=[DateRange(start_date=date_from, end_date=date_to)],
+                limit=limit))
+            rows = [{**{d: r.dimension_values[i].value for i, d in enumerate(dimensions)},
+                     **{m: r.metric_values[i].value for i, m in enumerate(metrics)}}
+                    for r in response.rows]
+            return {"property_id": target, "row_count": len(rows), "rows": rows,
+                    "truncated": len(rows) >= limit}
+        except Exception as exc:  # noqa: BLE001 - return readable errors to the model
+            return {"error": str(exc),
+                    "hint": "dimension/metric names must be native GA4 API names; "
+                            "see developers.google.com/analytics/devguides/reporting/data/v1/api-schema"}
+
+    @mcp.tool()
+    def query_gsc_live(dimensions: list[str], date_from: str, date_to: str,
+                       site_url: str | None = None, brand: str | None = None,
+                       row_limit: int = 1000) -> dict:
+        """Escape hatch: run any Search Console query live with arbitrary
+        dimensions from: query, page, date, device, country, searchAppearance
+        (e.g. ["query","page"] for query-to-page mapping). Returns clicks,
+        impressions, ctr, position per row. Not stored; prefer query_metrics
+        when a synced report answers the question. Pass brand= or an explicit
+        site_url. Dates are YYYY-MM-DD."""
+        try:
+            from googleapiclient.discovery import build
+
+            from hub.connectors.google_auth import get_credentials
+
+            target = _resolve_target("gsc", "site_urls", site_url, brand)
+            if isinstance(target, dict):
+                return target
+            creds = get_credentials(config.secrets_dir)
+            service = build("searchconsole", "v1", credentials=creds,
+                            cache_discovery=False)
+            resp = service.searchanalytics().query(siteUrl=target, body={
+                "startDate": date_from, "endDate": date_to,
+                "dimensions": dimensions, "rowLimit": row_limit}).execute()
+            rows = [{**dict(zip(dimensions, r["keys"])),
+                     "clicks": r.get("clicks"), "impressions": r.get("impressions"),
+                     "ctr": r.get("ctr"), "position": r.get("position")}
+                    for r in resp.get("rows", [])]
+            return {"site_url": target, "row_count": len(rows), "rows": rows,
+                    "truncated": len(rows) >= row_limit}
+        except Exception as exc:  # noqa: BLE001 - return readable errors to the model
+            return {"error": str(exc)}
 
     sync_log_path = Path(config_path).resolve().parent / "logs" / "mcp_sync.log"
     # a just-spawned sync takes ~1s to write its 'running' row, so the DB check

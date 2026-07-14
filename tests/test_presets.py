@@ -43,3 +43,39 @@ def test_date_from_alone_runs_to_today():
 def test_date_to_alone_raises():
     with pytest.raises(ValueError, match="date_from"):
         resolve_dates(None, date_to=date(2026, 6, 1), today=TODAY)
+
+
+# ---- compare-range shifting --------------------------------------------
+
+from hub.core.presets import shift_range  # noqa: E402
+
+
+def test_shift_prev_period_equal_length():
+    assert shift_range(date(2026, 6, 1), date(2026, 6, 30), "prev_period") == (
+        date(2026, 5, 2), date(2026, 5, 31))
+
+
+def test_shift_prev_day_and_week():
+    assert shift_range(date(2026, 7, 14), date(2026, 7, 14), "prev_day") == (
+        date(2026, 7, 13), date(2026, 7, 13))
+    assert shift_range(date(2026, 7, 7), date(2026, 7, 13), "prev_week") == (
+        date(2026, 6, 30), date(2026, 7, 6))
+
+
+def test_shift_prev_month_calendar_aligned():
+    # calendar month vs calendar month, not "30 days back"
+    assert shift_range(date(2026, 6, 1), date(2026, 6, 30), "prev_month") == (
+        date(2026, 5, 1), date(2026, 5, 30))
+    # day clamping: Mar 31 -> Feb 28
+    assert shift_range(date(2026, 3, 31), date(2026, 3, 31), "prev_month") == (
+        date(2026, 2, 28), date(2026, 2, 28))
+
+
+def test_shift_prev_year():
+    assert shift_range(date(2026, 6, 1), date(2026, 6, 30), "prev_year") == (
+        date(2025, 6, 1), date(2025, 6, 30))
+
+
+def test_shift_unknown_mode():
+    with pytest.raises(ValueError):
+        shift_range(date(2026, 6, 1), date(2026, 6, 30), "bogus")

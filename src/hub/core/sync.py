@@ -22,11 +22,16 @@ def run_sync(storage: Storage, connector: BaseConnector,
     for attempt in range(max(1, retries)):
         try:
             connector.authenticate()
-            raw = list(connector.extract(date_from, date_to))
-            rows = normalize(connector.id, raw)
-            n = storage.replace_rows(connector.id, date_from, date_to, rows)
-            storage.finish_sync(run_id, n, "success")
-            return n
+            total = 0
+            # each report replaces its own (source, report) slice, so a retry
+            # after a mid-loop failure just re-replaces — idempotent
+            for report in connector.enabled_reports():
+                raw = list(connector.extract_report(report, date_from, date_to))
+                rows = normalize(connector.id, raw, report=report)
+                total += storage.replace_rows(connector.id, date_from, date_to,
+                                              rows, report=report)
+            storage.finish_sync(run_id, total, "success")
+            return total
         except AuthError as exc:
             # auth problems don't heal on retry, and retrying can re-open
             # the interactive consent flow — fail fast with the hint attached

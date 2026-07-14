@@ -164,3 +164,92 @@ def test_connection_released_between_calls(tmp_path):
     # write connection must be obtainable now — would raise if MCP held its RO handle
     store = Storage(cfg.db_path)
     store.close()
+
+
+def seed_reports(cfg):
+    store = Storage(cfg.db_path)
+    d = date.today()
+    store.replace_rows("gsc", d, d, [
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="Vetrotech",
+                   clicks=5, extras={"query": "vetrotech fire glass"}),
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="Vetrotech",
+                   clicks=3, extras={"query": "fire rated glass"})], report="queries")
+    store.close()
+
+
+def test_new_tools_registered(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg)
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert {"list_reports", "query_ga4_live", "query_gsc_live"} <= names
+
+
+def test_query_metrics_report_param(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    seed_reports(cfg)
+    mcp = build_mcp(cfg)
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["date", "query", "clicks"], date_preset="last_7d",
+        source="gsc", report="queries"))
+    queries = {r["query"]: r["clicks"] for r in result["rows"]}
+    assert queries == {"vetrotech fire glass": 5, "fire rated glass": 3}
+    # core stays clean: breakdown rows must not leak into default queries
+    core = asyncio.run(mcp._call_query_metrics(
+        fields=["date", "clicks"], date_preset="last_7d"))
+    assert core["rows"][0]["clicks"] == 19
+
+
+def test_query_metrics_compare_prev_period(tmp_path):
+    cfg = make_config(tmp_path)
+    store = Storage(cfg.db_path)
+    store.replace_rows("gsc", date(2026, 5, 1), date(2026, 5, 31), [
+        UnifiedRow(date=date(2026, 5, 10), source="gsc", account_id="x",
+                   account_name="Vetrotech", clicks=80)])
+    store.replace_rows("gsc", date(2026, 6, 1), date(2026, 6, 30), [
+        UnifiedRow(date=date(2026, 6, 10), source="gsc", account_id="x",
+                   account_name="Vetrotech", clicks=100)])
+    store.close()
+    mcp = build_mcp(cfg)
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["date", "clicks"], date_from="2026-06-01", date_to="2026-06-30",
+        compare="prev_month"))
+    assert result["compare_date_from"] == "2026-05-01"
+    assert result["compare_date_to"] == "2026-05-30"
+    assert "note" in result  # date was dropped
+    r = result["rows"][0]
+    assert r["clicks"] == 100 and r["clicks_prev"] == 80
+    assert r["clicks_change_pct"] == 25.0
+
+
+def test_query_metrics_compare_handles_missing_previous(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)  # data only in current window
+    mcp = build_mcp(cfg)
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["clicks"], date_preset="last_7d", compare="prev_year"))
+    r = result["rows"][0]
+    assert r["clicks"] == 19
+    assert r["clicks_prev"] is None
+    assert r["clicks_change_pct"] is None
+
+
+def test_query_metrics_compare_unknown_mode(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg)
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["clicks"], date_preset="last_7d", compare="bogus"))
+    assert "error" in result and "available_modes" in result
+
+
+def test_query_metrics_extras_filter(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    seed_reports(cfg)
+    mcp = build_mcp(cfg)
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["query", "clicks"], date_preset="last_7d", source="gsc",
+        report="queries", filters={"query": "fire rated glass"}))
+    assert result["rows"] == [{"query": "fire rated glass", "clicks": 3}]

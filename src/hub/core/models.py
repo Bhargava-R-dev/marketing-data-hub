@@ -12,6 +12,7 @@ CORE_FIELDS = set(CORE_DIMENSIONS) | set(CORE_METRICS)
 class UnifiedRow(BaseModel):
     date: date
     source: str
+    report: str = "core"
     account_id: str
     account_name: str = ""
     campaign_id: str | None = None
