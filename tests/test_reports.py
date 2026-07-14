@@ -234,3 +234,36 @@ def test_ga4_events_report_registered():
     reg = GA4_REPORTS["events"]
     assert "event" in [s.name for s in reg.dimensions()]
     assert {"events", "conversions", "users"} <= {s.name for s in reg.metrics()}
+
+
+# ---- branded / non-branded tagging --------------------------------------
+
+
+def test_tag_branded_matches_substring_case_insensitive():
+    from hub.connectors.gsc import tag_branded
+    rows = [{"query": "Vetrotech fire glass"}, {"query": "fire rated glass price"},
+            {"query": "SAINT GOBAIN glazing"}, {"query": None}]
+    tag_branded(rows, ["vetrotech", "saint gobain"])
+    assert [r["branded"] for r in rows] == [True, False, True, False]
+
+
+def test_branded_is_registered_but_not_an_api_dimension():
+    reg = GSC_REPORTS["queries"]
+    assert "branded" in [s.name for s in reg.dimensions()]
+    api_dims = [s.name for s in reg.dimensions() if not s.native.startswith("_")]
+    assert api_dims == ["date", "query"]  # branded never sent to the API
+
+
+def test_branded_split_roundtrip(store):
+    d = date(2026, 7, 1)
+    store.replace_rows("gsc", d, d, [
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="Vetrotech",
+                   clicks=60, extras={"query": "vetrotech glass", "branded": True}),
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="Vetrotech",
+                   clicks=40, extras={"query": "fire glass", "branded": False}),
+    ], report="queries")
+    out = store.query(["branded", "clicks"], d, d, report="queries")
+    assert {(r["branded"], r["clicks"]) for r in out} == {("true", 60), ("false", 40)}
+    only = store.query(["clicks"], d, d, report="queries",
+                       filters={"branded": "true"})
+    assert only == [{"clicks": 60}]

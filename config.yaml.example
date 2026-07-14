@@ -17,6 +17,8 @@ connectors:
       # reports: [core, queries]   # optional (gsc has: core, queries, pages,
       #   devices, countries); core totals are exact, breakdowns undercount
       #   slightly because Google anonymises rare queries
+      # brand_terms:                # tags queries rows branded=true/false at sync
+      #   "sc-domain:example.com": [example, "example brand"]
   youtube:
     schedule: "0 6 * * *"
     options: {}

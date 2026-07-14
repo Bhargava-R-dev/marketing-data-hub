@@ -244,8 +244,9 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         - new vs returning visitors -> source="ga4", report="visitors"
         - specific conversion events (form submits, call clicks, brand-specific
           names) -> source="ga4", report="events" (+ filters={"event": ...})
-        - search queries, branded vs non-branded -> source="gsc", report="queries"
-          then string-match the query field against brand terms
+        - search queries -> source="gsc", report="queries"; branded vs
+          non-branded is pre-tagged: fields=["branded","clicks"] to split, or
+          filters={"branded": "true"} / {"branded": "false"} to pick one side
         - top pages in search -> source="gsc", report="pages"
         Never compare or add numbers across different reports of the same
         source; granularities differ. GSC breakdown reports undercount totals
