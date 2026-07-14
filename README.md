@@ -46,6 +46,11 @@ Then ask Claude: "How did my campaigns do last week?"
 Note: use an absolute path for --config; the MCP process may be launched from a
 different working directory.
 
+`trigger_sync` starts the sync in the background and returns immediately
+(output goes to `logs/mcp_sync.log`); poll `sync_status` to see when it
+finishes. While a sync holds the write lock, query tools return a readable
+"database is busy" error instead of hanging.
+
 ## Activating the ad connectors
 
 - **Google Ads:** apply for a developer token (API Center), then uncomment
@@ -56,6 +61,8 @@ different working directory.
 ## Known limitations
 
 - DuckDB allows one writer: run `hub mcp` OR `hub serve`, not both at once
-  (trigger_sync from MCP shells out to the CLI, which needs the write lock free).
+  (trigger_sync from MCP spawns the CLI, which needs the write lock free).
+  While any sync runs, MCP query tools report "database is busy" until it
+  finishes (~3 min for `sync all`).
 - Extras fields (e.g. position, ctr, views) are returned as strings by the query
   API — cast numerically as needed.
