@@ -7,3 +7,4 @@ secrets/
 data/
 exports/
 .pytest_cache/
+logs/
