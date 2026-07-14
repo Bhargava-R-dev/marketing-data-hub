@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import os
 import re
@@ -15,15 +14,13 @@ from hub.core.models import CORE_DIMENSIONS, CORE_METRICS, UnifiedRow
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-_NULL = "\\N"  # csv marker for NULL (plain empty string stays a string)
-
-_METRIC_COLUMNS = {  # insert order; extras handled separately
+_METRIC_COLUMNS = {  # bulk-load column spec, in metrics-table order
     "date": "DATE", "source": "VARCHAR", "report": "VARCHAR",
     "account_id": "VARCHAR", "account_name": "VARCHAR",
     "campaign_id": "VARCHAR", "campaign": "VARCHAR",
     "impressions": "BIGINT", "clicks": "BIGINT", "spend": "DOUBLE",
     "conversions": "DOUBLE", "conversion_value": "DOUBLE",
-    "sessions": "BIGINT", "users": "BIGINT", "extras": "VARCHAR",
+    "sessions": "BIGINT", "users": "BIGINT", "extras": "JSON",
 }
 
 _SCHEMA = [
@@ -57,48 +54,55 @@ class Storage:
                      rows: list[UnifiedRow], report: str = "core") -> int:
         """Transactionally replace one (source, report) slice of a date range.
 
-        Bulk-loads through a temp CSV + read_csv: parameter-bound executemany
-        is ~16ms/row on some Windows setups, which turns breakdown-report
-        volumes (tens of thousands of rows) into hours."""
+        Bulk-loads through a temp JSONL file + read_json: parameter-bound
+        executemany is ~16ms/row on some Windows setups, which turns
+        breakdown-report volumes (tens of thousands of rows) into hours.
+        JSONL rather than CSV because campaign names, queries, and landing
+        pages contain quotes/commas/newlines that trip strict CSV parsing."""
         with self._lock:
-            csv_path = self._write_rows_csv(rows, report) if rows else None
+            jsonl_path = self._write_rows_jsonl(rows, report) if rows else None
             self.conn.execute("BEGIN TRANSACTION")
             try:
                 self.conn.execute(
                     "DELETE FROM metrics WHERE source = ? AND report = ? "
                     "AND date BETWEEN ? AND ?",
                     [source, report, date_from, date_to])
-                if csv_path:
+                if jsonl_path:
                     cols = ", ".join(_METRIC_COLUMNS)
                     spec = ", ".join(f"'{c}': '{t}'" for c, t in _METRIC_COLUMNS.items())
                     self.conn.execute(
                         f"""INSERT INTO metrics ({cols})
-                            SELECT * REPLACE (CAST(extras AS JSON) AS extras)
-                            FROM read_csv('{csv_path.as_posix()}', header = true,
-                                          nullstr = '{_NULL}', columns = {{{spec}}})""")
+                            SELECT {cols}
+                            FROM read_json('{jsonl_path.as_posix()}',
+                                           format = 'newline_delimited',
+                                           columns = {{{spec}}})""")
                 self.conn.execute("COMMIT")
             except Exception:
                 self.conn.execute("ROLLBACK")
                 raise
             finally:
-                if csv_path:
-                    os.unlink(csv_path)
+                if jsonl_path:
+                    os.unlink(jsonl_path)
             return len(rows)
 
     @staticmethod
-    def _write_rows_csv(rows: list[UnifiedRow], report: str) -> Path:
+    def _write_rows_jsonl(rows: list[UnifiedRow], report: str) -> Path:
         fh = tempfile.NamedTemporaryFile(
-            mode="w", newline="", encoding="utf-8", suffix=".csv", delete=False)
+            mode="w", encoding="utf-8", suffix=".jsonl", delete=False)
         try:
             with fh:
-                writer = csv.writer(fh)
-                writer.writerow(_METRIC_COLUMNS)
                 for r in rows:
-                    vals = [r.date.isoformat(), r.source, report, r.account_id,
-                            r.account_name, r.campaign_id, r.campaign, r.impressions,
-                            r.clicks, r.spend, r.conversions, r.conversion_value,
-                            r.sessions, r.users, json.dumps(r.extras)]
-                    writer.writerow(_NULL if v is None else v for v in vals)
+                    fh.write(json.dumps({
+                        "date": r.date.isoformat(), "source": r.source,
+                        "report": report, "account_id": r.account_id,
+                        "account_name": r.account_name, "campaign_id": r.campaign_id,
+                        "campaign": r.campaign, "impressions": r.impressions,
+                        "clicks": r.clicks, "spend": r.spend,
+                        "conversions": r.conversions,
+                        "conversion_value": r.conversion_value,
+                        "sessions": r.sessions, "users": r.users,
+                        "extras": r.extras,
+                    }, ensure_ascii=False) + "\n")
         except Exception:
             os.unlink(fh.name)
             raise

@@ -91,3 +91,24 @@ def test_concurrent_replace_rows_is_serialized(store):
     assert errors == []
     # connection still healthy afterwards
     assert len(store.row_counts()) == 4
+
+
+def test_bulk_load_survives_hostile_text(store):
+    # campaign names / queries / landing pages with quotes, commas, newlines,
+    # unicode — the exact class of input that broke strict CSV parsing
+    d = date(2026, 7, 1)
+    nasty = [
+        UnifiedRow(date=d, source="ga4", account_id="a", account_name='Acme "Pro", Inc.',
+                   campaign='Summer,Sale "2026"\nline2', sessions=5,
+                   extras={"landing_page": '/lp?q="fire glass",\ntest&x=1',
+                           "channel": "Organic Search"}),
+        UnifiedRow(date=d, source="ga4", account_id="a", account_name="日本語ブランド",
+                   campaign="tab\there", sessions=7,
+                   extras={"landing_page": "/普通のページ", "channel": "Direct"}),
+    ]
+    assert store.replace_rows("ga4", d, d, nasty, report="landing_pages") == 2
+    out = store.query(["campaign", "landing_page", "sessions"], d, d,
+                      report="landing_pages")
+    by_campaign = {r["campaign"]: r for r in out}
+    assert by_campaign['Summer,Sale "2026"\nline2']["landing_page"] == '/lp?q="fire glass",\ntest&x=1'
+    assert by_campaign["tab\there"]["sessions"] == 7
