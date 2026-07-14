@@ -62,10 +62,13 @@ def backfill(storage: Storage, connector: BaseConnector,
     """Sync a date range in chunks, oldest first.
 
     Aborts on the first chunk that fails all retries; completed chunks stay
-    committed. Re-run with an adjusted date_from to resume.
+    committed. Re-run with an adjusted date_from to resume. Uses more retries
+    than a daily sync (backoff up to ~2 min total) so a brief network outage
+    doesn't kill a multi-hour history load.
     """
     date_to = date_to or date.today()
     total = 0
     for start, end in backfill_chunks(date_from, date_to):
-        total += run_sync(storage, connector, date_from=start, date_to=end)
+        total += run_sync(storage, connector, date_from=start, date_to=end,
+                          retries=6)
     return total
