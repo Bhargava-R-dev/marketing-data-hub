@@ -101,7 +101,12 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         last week"), pass brand="vetrotech" — it matches account_name
         case-insensitively and partially. Do NOT use the campaign filter for brand
         names; campaigns are ad-campaign names within a brand. If the brand doesn't
-        match, the response lists available_brands to pick from."""
+        match, the response lists available_brands to pick from.
+
+        CAVEAT: Search Console (gsc) data has a 2-3 day reporting lag from Google,
+        so the most recent days of any range will be missing for gsc metrics
+        (clicks/impressions) — mention this when reporting recent gsc numbers.
+        GA4 data (sessions/users/conversions) is current through yesterday/today."""
         try:
             return _with_storage(lambda s: _query_metrics(
                 s, fields, date_preset, date_from, date_to, source, campaign, brand))
