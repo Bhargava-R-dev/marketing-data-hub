@@ -23,6 +23,11 @@ def test_parse_empty_response():
     assert parse_gsc_response({}, site_url="x") == []
 
 
+def test_parse_gsc_response_with_label():
+    rows = parse_gsc_response(FIXTURE, site_url="sc-domain:example.com", account_name="Vetrotech")
+    assert rows[0]["account_name"] == "Vetrotech"
+
+
 def test_connector_metadata():
     assert SearchConsoleConnector.id == "gsc"
     assert set(GSC_FIELDS.names()) == {"date", "clicks", "impressions", "ctr", "position"}

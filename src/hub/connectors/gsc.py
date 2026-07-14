@@ -15,11 +15,11 @@ GSC_FIELDS = FieldRegistry([
 ])
 
 
-def parse_gsc_response(resp: dict, site_url: str) -> list[dict]:
+def parse_gsc_response(resp: dict, site_url: str, account_name: str | None = None) -> list[dict]:
     out = []
     for row in resp.get("rows", []):
         out.append({
-            "account_id": site_url, "account_name": site_url,
+            "account_id": site_url, "account_name": account_name or site_url,
             "date": row["keys"][0],
             "clicks": row.get("clicks"), "impressions": row.get("impressions"),
             "ctr": row.get("ctr"), "position": row.get("position"),
@@ -38,6 +38,7 @@ class SearchConsoleConnector(BaseConnector):
         from googleapiclient.discovery import build
 
         site_urls = resolve_targets(self.settings.options, "site_urls", "site_url")
+        labels = self.settings.options.get("labels", {})
         service = build("searchconsole", "v1", credentials=self._creds,
                         cache_discovery=False)
         body = {"startDate": date_from.isoformat(), "endDate": date_to.isoformat(),
@@ -45,5 +46,5 @@ class SearchConsoleConnector(BaseConnector):
         results: list[dict] = []
         for site_url in site_urls:
             resp = service.searchanalytics().query(siteUrl=site_url, body=body).execute()
-            results.extend(parse_gsc_response(resp, site_url))
+            results.extend(parse_gsc_response(resp, site_url, labels.get(site_url)))
         return results

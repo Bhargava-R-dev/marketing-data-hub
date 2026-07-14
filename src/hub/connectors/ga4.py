@@ -18,12 +18,13 @@ GA4_FIELDS = FieldRegistry([
 _N2U = GA4_FIELDS.native_to_unified()
 
 
-def parse_ga4_report(report: dict, property_id: str) -> list[dict]:
+def parse_ga4_report(report: dict, property_id: str, account_name: str | None = None) -> list[dict]:
     dims = [h["name"] for h in report.get("dimensionHeaders", [])]
     mets = [h["name"] for h in report.get("metricHeaders", [])]
     out = []
     for row in report.get("rows", []):
-        raw: dict = {"account_id": property_id, "account_name": f"GA4 {property_id}"}
+        raw: dict = {"account_id": property_id,
+                     "account_name": account_name or f"GA4 {property_id}"}
         for name, v in zip(dims, row["dimensionValues"]):
             raw[_N2U[name]] = v["value"]
         for name, v in zip(mets, row["metricValues"]):
@@ -47,6 +48,7 @@ class GA4Connector(BaseConnector):
             DateRange, Dimension, Metric, RunReportRequest, RunReportResponse)
 
         property_ids = resolve_targets(self.settings.options, "property_ids", "property_id")
+        labels = self.settings.options.get("labels", {})
         client = BetaAnalyticsDataClient(credentials=self._creds)
         results: list[dict] = []
         for property_id in property_ids:
@@ -60,5 +62,5 @@ class GA4Connector(BaseConnector):
             )
             response = client.run_report(request)
             report = RunReportResponse.to_dict(response, preserving_proto_field_name=False)
-            results.extend(parse_ga4_report(report, property_id))
+            results.extend(parse_ga4_report(report, property_id, labels.get(property_id)))
         return results

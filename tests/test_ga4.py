@@ -28,6 +28,11 @@ def test_parse_empty_report():
     assert parse_ga4_report({"rows": []}, property_id="123") == []
 
 
+def test_parse_ga4_report_with_label():
+    rows = parse_ga4_report(FIXTURE, property_id="123", account_name="Vetrotech")
+    assert rows[0]["account_name"] == "Vetrotech"
+
+
 def test_connector_metadata():
     assert GA4Connector.id == "ga4"
     assert set(GA4_FIELDS.names()) == {

@@ -17,7 +17,10 @@ def seed(cfg):
     store = Storage(cfg.db_path)
     d = date.today()
     store.replace_rows("gsc", d, d, [
-        UnifiedRow(date=d, source="gsc", account_id="x", clicks=12, impressions=300)])
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="Vetrotech",
+                   clicks=12, impressions=300),
+        UnifiedRow(date=d, source="gsc", account_id="y", account_name="Sharekhan",
+                   clicks=7, impressions=100)])
     store.close()
 
 
@@ -38,7 +41,37 @@ def test_query_metrics_tool_logic(tmp_path):
     mcp = build_mcp(cfg)
     result = asyncio.run(mcp._call_query_metrics(  # exposed for tests
         fields=["date", "clicks"], date_preset="last_7d"))
+    assert result["rows"][0]["clicks"] == 19  # both seeded brands aggregated
+
+
+def test_query_metrics_brand_filter_fuzzy(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg)
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["date", "clicks"], date_preset="last_7d", brand="vetrotec"))
+    assert result["matched_brands"] == ["Vetrotech"]
+    assert len(result["rows"]) == 1
     assert result["rows"][0]["clicks"] == 12
+    assert result["rows"][0]["account_name"] == "Vetrotech"
+
+
+def test_query_metrics_unknown_brand_lists_available(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg)
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["date", "clicks"], date_preset="last_7d", brand="nike"))
+    assert "error" in result
+    assert result["available_brands"] == ["Sharekhan", "Vetrotech"]
+
+
+def test_list_brands_tool(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg)
+    tools = asyncio.run(mcp.list_tools())
+    assert "list_brands" in {t.name for t in tools}
 
 
 def test_connection_released_between_calls(tmp_path):

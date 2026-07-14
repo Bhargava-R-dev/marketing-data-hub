@@ -103,6 +103,16 @@ class Storage:
                 "SELECT source, COUNT(*), MAX(date) FROM metrics GROUP BY source")
             return {s: {"rows": n, "latest_date": latest} for s, n, latest in cur.fetchall()}
 
+    def accounts(self) -> list[dict]:
+        """Distinct accounts/brands in the data with their coverage window."""
+        with self._lock:
+            cur = self.conn.execute(
+                """SELECT source, account_id, account_name, COUNT(*), MIN(date), MAX(date)
+                   FROM metrics GROUP BY 1, 2, 3 ORDER BY 1, 3""")
+            return [{"source": s, "account_id": aid, "account_name": name,
+                     "rows": n, "first_date": first, "latest_date": latest}
+                    for s, aid, name, n, first, latest in cur.fetchall()]
+
     # ---- sync log -----------------------------------------------------
     def start_sync(self, source: str, date_from: date, date_to: date) -> int:
         with self._lock:

@@ -31,17 +31,36 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
 
     def _query_metrics(storage, fields: list[str], date_preset: str | None = None,
                        date_from: str | None = None, date_to: str | None = None,
-                       source: str | None = None, campaign: str | None = None) -> dict:
+                       source: str | None = None, campaign: str | None = None,
+                       brand: str | None = None) -> dict:
         df, dt = resolve_dates(
             date_preset,
             date.fromisoformat(date_from) if date_from else None,
             date.fromisoformat(date_to) if date_to else None)
         filters = {"campaign": campaign} if campaign else None
+
+        matched_names: list[str] = []
+        if brand:
+            known = storage.accounts()
+            matched_names = sorted({a["account_name"] for a in known
+                                    if brand.lower() in a["account_name"].lower()})
+            if not matched_names:
+                return {"error": f"no brand matching {brand!r}",
+                        "available_brands": sorted({a["account_name"] for a in known})}
+            # group by account_name so we can filter the aggregated rows per brand
+            if "account_name" not in fields:
+                fields = [*fields, "account_name"]
+
         rows = storage.query(fields, df, dt,
                              sources=[source] if source else None, filters=filters)
-        return {"date_from": df.isoformat(), "date_to": dt.isoformat(),
-                "rows": [{k: (v.isoformat() if isinstance(v, date) else v)
-                          for k, v in r.items()} for r in rows]}
+        if matched_names:
+            rows = [r for r in rows if r.get("account_name") in matched_names]
+        result = {"date_from": df.isoformat(), "date_to": dt.isoformat(),
+                  "rows": [{k: (v.isoformat() if isinstance(v, date) else v)
+                            for k, v in r.items()} for r in rows]}
+        if matched_names:
+            result["matched_brands"] = matched_names
+        return result
 
     # exposed for tests
     async def _call_query_metrics(**kwargs) -> dict:
@@ -50,8 +69,20 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
 
     @mcp.tool()
     def list_sources() -> list[dict]:
-        """List marketing data sources with sync status, row counts, freshness."""
+        """List marketing data sources (ga4, gsc, ...) with sync status, row counts,
+        freshness. For the brands/websites inside each source, use list_brands."""
         return _with_storage(lambda s: source_statuses(config, s))
+
+    @mcp.tool()
+    def list_brands() -> list[dict]:
+        """List every brand/account in the data (e.g. Vetrotech, Sharekhan,
+        L&T Realty) with its source, row count, and date coverage. Call this
+        first when the user asks about a specific brand or website."""
+        return _with_storage(lambda s: [
+            {**a,
+             "first_date": a["first_date"].isoformat() if a["first_date"] else None,
+             "latest_date": a["latest_date"].isoformat() if a["latest_date"] else None}
+            for a in s.accounts()])
 
     @mcp.tool()
     def list_fields(source: str) -> list[dict]:
@@ -61,12 +92,19 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
     @mcp.tool()
     def query_metrics(fields: list[str], date_preset: str | None = None,
                       date_from: str | None = None, date_to: str | None = None,
-                      source: str | None = None, campaign: str | None = None) -> dict:
+                      source: str | None = None, campaign: str | None = None,
+                      brand: str | None = None) -> dict:
         """Query unified marketing metrics, e.g. fields=["date","source","clicks","spend"]
-        with date_preset one of last_7d/last_30d/last_90d/this_month/last_month/ytd."""
+        with date_preset one of last_7d/last_30d/last_90d/this_month/last_month/ytd.
+
+        To answer questions about a specific brand/website (e.g. "Vetrotech traffic
+        last week"), pass brand="vetrotech" — it matches account_name
+        case-insensitively and partially. Do NOT use the campaign filter for brand
+        names; campaigns are ad-campaign names within a brand. If the brand doesn't
+        match, the response lists available_brands to pick from."""
         try:
             return _with_storage(lambda s: _query_metrics(
-                s, fields, date_preset, date_from, date_to, source, campaign))
+                s, fields, date_preset, date_from, date_to, source, campaign, brand))
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
