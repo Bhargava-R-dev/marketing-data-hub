@@ -1,12 +1,21 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Iterable
 
 from hub.connectors.base import BaseConnector, FieldRegistry, FieldSpec, resolve_targets
 from hub.connectors.google_auth import get_credentials
 
 _PAGE_SIZE = 250_000  # GA4 Data API max rows per request
+
+
+def has_other_row(rows: list[dict], dim_names: list[str]) -> bool:
+    """True if GA4 collapsed excess cardinality into an '(other)' row.
+
+    '(other)' metrics can DOUBLE-COUNT with named rows (documented GA4
+    behaviour), silently inflating totals by 40%+ on huge properties —
+    callers must re-fetch a smaller date range instead of storing them."""
+    return any(r.get(d) == "(other)" for r in rows for d in dim_names)
 
 GA4_FIELDS = FieldRegistry([
     FieldSpec("date", "date", dimension=True),
@@ -118,8 +127,6 @@ class GA4Connector(BaseConnector):
     def extract_report(self, report: str, date_from: date,
                        date_to: date) -> Iterable[dict]:
         from google.analytics.data_v1beta import BetaAnalyticsDataClient
-        from google.analytics.data_v1beta.types import (
-            DateRange, Dimension, Metric, RunReportRequest, RunReportResponse)
 
         registry = self.get_reports()[report]
         n2u = registry.native_to_unified()
@@ -128,22 +135,52 @@ class GA4Connector(BaseConnector):
         client = BetaAnalyticsDataClient(credentials=self._creds)
         results: list[dict] = []
         for property_id in property_ids:
-            offset = 0
-            while True:
-                request = RunReportRequest(
-                    property=f"properties/{property_id}",
-                    dimensions=[Dimension(name=s.native) for s in registry.dimensions()],
-                    metrics=[Metric(name=s.native) for s in registry.metrics()],
-                    date_ranges=[DateRange(start_date=date_from.isoformat(),
-                                           end_date=date_to.isoformat())],
-                    limit=_PAGE_SIZE,
-                    offset=offset,
-                )
-                response = client.run_report(request)
-                rep = RunReportResponse.to_dict(response, preserving_proto_field_name=False)
-                page = parse_ga4_report(rep, property_id, labels.get(property_id), n2u)
-                results.extend(page)
-                if len(rep.get("rows", [])) < _PAGE_SIZE:
-                    break
-                offset += _PAGE_SIZE
+            results.extend(self._fetch_range(
+                client, registry, n2u, property_id, labels.get(property_id),
+                date_from, date_to))
+        return results
+
+    def _fetch_range(self, client, registry: FieldRegistry, n2u: dict,
+                     property_id: str, label: str | None,
+                     date_from: date, date_to: date) -> list[dict]:
+        """Fetch one property/range; bisect the range whenever GA4 collapses
+        cardinality into '(other)' rows, which double-count (single-day
+        requests stay under the limit even for very large properties). A
+        single day that still returns '(other)' is kept — no finer split
+        exists."""
+        rows = self._fetch_once(client, registry, n2u, property_id, label,
+                                date_from, date_to)
+        dims = [s.name for s in registry.dimensions() if s.name != "date"]
+        if date_from < date_to and has_other_row(rows, dims):
+            mid = date_from + timedelta(days=(date_to - date_from).days // 2)
+            return (self._fetch_range(client, registry, n2u, property_id, label,
+                                      date_from, mid)
+                    + self._fetch_range(client, registry, n2u, property_id, label,
+                                        mid + timedelta(days=1), date_to))
+        return rows
+
+    def _fetch_once(self, client, registry: FieldRegistry, n2u: dict,
+                    property_id: str, label: str | None,
+                    date_from: date, date_to: date) -> list[dict]:
+        from google.analytics.data_v1beta.types import (
+            DateRange, Dimension, Metric, RunReportRequest, RunReportResponse)
+
+        results: list[dict] = []
+        offset = 0
+        while True:
+            request = RunReportRequest(
+                property=f"properties/{property_id}",
+                dimensions=[Dimension(name=s.native) for s in registry.dimensions()],
+                metrics=[Metric(name=s.native) for s in registry.metrics()],
+                date_ranges=[DateRange(start_date=date_from.isoformat(),
+                                       end_date=date_to.isoformat())],
+                limit=_PAGE_SIZE,
+                offset=offset,
+            )
+            response = client.run_report(request)
+            rep = RunReportResponse.to_dict(response, preserving_proto_field_name=False)
+            results.extend(parse_ga4_report(rep, property_id, label, n2u))
+            if len(rep.get("rows", [])) < _PAGE_SIZE:
+                break
+            offset += _PAGE_SIZE
         return results
