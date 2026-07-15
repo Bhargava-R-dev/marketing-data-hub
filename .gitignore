@@ -1,10 +1,21 @@
+# --- secrets & credentials (NEVER commit or share) ---
+.env
+secrets/
+*.json.key
+google_token.json
+google_client.json
+
+# --- personal config & data (each user has their own) ---
+config.yaml
+data/
+exports/
+logs/
+*.duckdb
+*.duckdb.wal
+
+# --- python ---
 __pycache__/
 *.egg-info/
 .venv/
-.env
-config.yaml
-secrets/
-data/
-exports/
+venv/
 .pytest_cache/
-logs/

@@ -41,6 +41,9 @@ the APIs on demand.
 
 ## Setup
 
+**New here / installing on another machine? Follow [SETUP.md](SETUP.md)** — a
+step-by-step guide including the Google Cloud OAuth setup. Quick version:
+
 1. `python -m pip install -e ".[dev]"`
 2. Copy `config.yaml.example` → `config.yaml`; fill in your GA4 `property_id`
    and Search Console `site_url`. Have multiple GA4 properties or Search Console
@@ -49,9 +52,13 @@ the APIs on demand.
    so they stay distinguishable downstream.
 3. Copy `.env.example` → `.env`; set a random `HUB_API_KEY`.
 4. Google Cloud Console → create a project → enable **Google Analytics Data API**,
-   **Search Console API**, **YouTube Analytics API** → create an **OAuth client
-   (Desktop app)** → download JSON to `secrets/google_client.json`.
+   **Google Analytics Admin API**, **Search Console API**, **YouTube Analytics
+   API** → create an **OAuth client (Desktop app)** → download JSON to
+   `secrets/google_client.json`. (See [SETUP.md](SETUP.md) for the OAuth
+   consent-screen steps and the 7-day token-expiry gotcha.)
 5. `hub doctor` — first run opens a browser to authorize; then all checks go green.
+6. `hub accounts --add` — pick which GA4 properties / GSC sites to sync from
+   everything your Google login can see.
 
 ## Daily use
 
