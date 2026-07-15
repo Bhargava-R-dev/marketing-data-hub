@@ -41,4 +41,15 @@ def load_config(path: str | Path = "config.yaml") -> HubConfig:
         raise FileNotFoundError(
             f"Config file not found: {path}. Copy config.yaml.example to config.yaml.")
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return HubConfig(**data)
+    cfg = HubConfig(**data)
+    # Resolve relative storage paths against the config file's own directory so
+    # the whole folder is portable: copy it to any machine / user / location and
+    # it just works, regardless of the process's working directory (the MCP
+    # server, scheduler, and CLI all launch from different cwds). Absolute paths
+    # are left untouched.
+    base = path.resolve().parent
+    for attr in ("db_path", "secrets_dir", "exports_dir"):
+        value = Path(getattr(cfg, attr))
+        if not value.is_absolute():
+            setattr(cfg, attr, str((base / value).resolve()))
+    return cfg

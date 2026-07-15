@@ -11,6 +11,39 @@ the only fiddly part — follow it carefully and the rest is copy-paste.
 
 ---
 
+## Shortcut: teammates on the SAME Google account
+
+If a colleague works on the **same** Google/agency login and you just want them
+running fast, you can skip the entire Google Cloud setup (steps 2–5 below) by
+**copying your working folder to their machine** over a trusted internal channel
+(USB drive or internal network share — *not* email, cloud drives, or anything
+public; the folder contains a live access token). Then they only need:
+
+1. Install Python 3.11+.
+2. Copy the whole `data collection` folder to a **short path** (e.g.
+   `C:\dev\marketing-data-hub` — deep paths break the install on Windows).
+3. `cd` in and run `python -m pip install -e ".[dev]"`.
+4. `hub status` — it should show your existing data immediately (paths in
+   config.yaml are relative, so the copy works with no edits).
+
+That's it — the copied `secrets/`, `config.yaml`, and database come along, so no
+Cloud project, no OAuth, no reconfiguration. They can then run `hub serve`,
+`hub export`, or register the MCP server as below.
+
+**Know the trade-offs of the copy shortcut:**
+- It shares **one** access token across machines. If anyone revokes it (or the
+  account owner removes app access), everyone's sync stops at once.
+- There's no per-person audit — all activity looks like the one shared account.
+- Each machine's daily sync hits Google independently; fine for a few people,
+  but don't copy to a whole department. For that, give people their own Google
+  Cloud credentials (the full setup below).
+- Copy the **database** only *after* any in-progress backfill finishes, or just
+  delete `data/` on their copy and let them `hub sync` / `hub backfill` fresh.
+
+For anyone **not** on your Google account, they must do the full setup:
+
+---
+
 ## What you need first
 
 - **Python 3.11 or newer** (`python --version` to check).
