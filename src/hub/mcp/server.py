@@ -244,9 +244,17 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         - new vs returning visitors -> source="ga4", report="visitors"
         - specific conversion events (form submits, call clicks, brand-specific
           names) -> source="ga4", report="events" (+ filters={"event": ...})
-        - search queries -> source="gsc", report="queries"; branded vs
-          non-branded is pre-tagged: fields=["branded","clicks"] to split, or
-          filters={"branded": "true"} / {"branded": "false"} to pick one side
+        - search queries -> source="gsc", report="queries"; branded is
+          pre-tagged: fields=["branded","clicks"] or filters={"branded": ...}
+        BRANDED/NON-BRANDED FOR CLIENT REPORTS (standard agency methodology):
+          branded = sum of branded="true" rows from report="queries";
+          non-branded = core-report total MINUS branded. Do NOT report the sum
+          of branded="false" rows as non-branded: Google anonymises rare
+          queries, so query-level rows only cover ~55-70% of true totals and
+          anonymised queries conventionally count as non-branded. Computed this
+          way, branded + non-branded = the exact core total. Expect a few %
+          difference vs numbers exported from the GSC web UI (UI and API serve
+          slightly different datasets).
         - top pages in search -> source="gsc", report="pages"
         Never compare or add numbers across different reports of the same
         source; granularities differ. GSC breakdown reports undercount totals
