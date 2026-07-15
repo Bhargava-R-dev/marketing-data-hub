@@ -168,6 +168,71 @@ def serve(config: str = CONFIG_OPT, host: str = "127.0.0.1", port: int = 8000):
 
 
 @app.command()
+def accounts(source: str | None = typer.Argument(
+                 None, help="ga4 | gsc (default: both)"),
+             add: bool = typer.Option(False, "--add", help="Select and add accounts"),
+             ids: list[str] = typer.Option(
+                 None, "--id", help="Add these ids non-interactively (with --add)"),
+             config: str = CONFIG_OPT):
+    """List every account the Google login can see; --add to select & save.
+
+    Windsor-style onboarding: shows all GA4 properties / GSC sites available
+    to the authorized token, marks configured ones, and writes selections to
+    config.yaml (labels auto-filled from the account names)."""
+    from hub.connectors.google_auth import get_credentials
+    from hub.core.accounts import add_accounts, annotate_configured, discover_all
+
+    cfg = _load(config)
+    creds = get_credentials(cfg.secrets_dir)
+    found = annotate_configured(discover_all(creds, source), cfg)
+    if not found:
+        typer.echo("No accounts visible to this Google login.")
+        raise typer.Exit(0)
+
+    by_num = {}
+    for n, a in enumerate(sorted(found, key=lambda a: (a["source"], a["parent"], a["name"])), 1):
+        by_num[n] = a
+        mark = "*" if a["configured"] else " "
+        parent = f" ({a['parent']})" if a["parent"] and a["parent"] != a["name"] else ""
+        typer.echo(f"{n:>4} [{mark}] {a['source']:4} {a['name']}{parent}  ->  {a['id']}")
+    typer.echo("\n  [*] = already in config.yaml")
+
+    if not add:
+        typer.echo("Run again with --add to select accounts to configure.")
+        raise typer.Exit(0)
+
+    if ids:
+        chosen = [a for a in found if a["id"] in set(ids)]
+        missing = set(ids) - {a["id"] for a in chosen}
+        if missing:
+            typer.echo(f"[FAIL] not visible to this login: {sorted(missing)}")
+            raise typer.Exit(1)
+    else:
+        raw = typer.prompt("\nNumbers to add (comma-separated, e.g. 3,7,12)")
+        try:
+            chosen = [by_num[int(x)] for x in raw.replace(" ", "").split(",") if x]
+        except (KeyError, ValueError):
+            typer.echo("[FAIL] enter numbers from the list, comma-separated")
+            raise typer.Exit(1)
+
+    added_total = 0
+    for src in ("ga4", "gsc"):
+        sels = [a for a in chosen if a["source"] == src and not a["configured"]]
+        if not sels:
+            continue
+        added = add_accounts(config, src, sels)
+        added_total += len(added)
+        for a in sels:
+            typer.echo(f"[OK] added {src}: {a['name']} ({a['id']})")
+    skipped = [a for a in chosen if a["configured"]]
+    for a in skipped:
+        typer.echo(f"[SKIP] already configured: {a['id']}")
+    if added_total:
+        typer.echo(f"\nSaved to {config}. Next: hub sync all  "
+                   f"(and hub backfill <source> --from ... for history)")
+
+
+@app.command()
 def mcp(config: str = CONFIG_OPT):
     """Run the MCP server over stdio (register in Claude config)."""
     from hub.mcp.server import build_mcp

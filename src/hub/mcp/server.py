@@ -370,6 +370,60 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
+    @mcp.tool()
+    def list_available_accounts(source: str | None = None) -> list[dict] | dict:
+        """Windsor-style onboarding: list every GA4 property and Search Console
+        site the authorized Google login can access (source: "ga4" | "gsc" |
+        omit for both), with configured=true on those already syncing. Show the
+        user the unconfigured ones and ask which to add, then call
+        add_accounts with their selection."""
+        try:
+            from hub.connectors.google_auth import get_credentials
+            from hub.core.accounts import annotate_configured, discover_all
+
+            creds = get_credentials(config.secrets_dir)
+            return annotate_configured(discover_all(creds, source), config)
+        except Exception as exc:  # noqa: BLE001 - return readable errors to the model
+            return {"error": str(exc)}
+
+    @mcp.tool()
+    def add_accounts(source: str, account_ids: list[str]) -> dict:
+        """Add accounts the user selected to config.yaml (source: "ga4" or
+        "gsc"; account_ids from list_available_accounts). Labels are filled
+        from the account names automatically. Only ids visible to the Google
+        login are accepted. ALWAYS confirm the specific accounts with the user
+        before calling this. After adding: trigger_sync for a first load, and
+        suggest a backfill for history."""
+        try:
+            from hub.connectors.google_auth import get_credentials
+            from hub.core.accounts import add_accounts as _add
+            from hub.core.accounts import discover_all
+
+            creds = get_credentials(config.secrets_dir)
+            visible = {a["id"]: a for a in discover_all(creds, source)}
+            unknown = [i for i in account_ids if i not in visible]
+            if unknown:
+                return {"error": f"not visible to this Google login: {unknown}",
+                        "hint": "use ids exactly as returned by list_available_accounts"}
+            added = _add(config_path, source,
+                         [visible[i] for i in account_ids])
+            # keep the in-memory config consistent for later calls this session
+            # (a brand-new connector block only exists in the file; the running
+            # server picks it up because trigger_sync re-reads config.yaml)
+            if source in config.connectors:
+                for i in added:
+                    config.connectors[source].options.setdefault(
+                        "property_ids" if source == "ga4" else "site_urls", []).append(i)
+                    config.connectors[source].options.setdefault("labels", {})[i] = \
+                        visible[i].get("name", i)
+            return {"added": added,
+                    "skipped_already_configured":
+                        [i for i in account_ids if i not in added],
+                    "next_steps": "trigger_sync to load the rolling window; run "
+                                  "'hub backfill' from a terminal for history"}
+        except Exception as exc:  # noqa: BLE001 - return readable errors to the model
+            return {"error": str(exc)}
+
     sync_log_path = Path(config_path).resolve().parent / "logs" / "mcp_sync.log"
     # a just-spawned sync takes ~1s to write its 'running' row, so the DB check
     # alone can't stop an immediate double-trigger — track our own child too
