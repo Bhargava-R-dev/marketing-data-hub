@@ -130,6 +130,7 @@ hub status                                # row counts + last sync per source
 | `hub accounts` shows nothing | Your Google login has no GA4/GSC access, or the Admin API isn't enabled (step 2.2). |
 | "database is busy" from MCP | A sync is running (it holds the write lock). Wait / check `sync_status`. |
 | MCP tools not showing in Claude | Fully quit and reopen the Claude app after registering the server. |
+| `pip install` fails with a long-path / `No such file or directory` error on Windows | The `google-analytics-data` package nests files deeply and can exceed Windows' 260-char path limit. Clone into a **short** path (e.g. `C:\dev\marketing-data-hub`, not a deep `Downloads\...` folder), or enable Long Path support: <https://pip.pypa.io/warnings/enable-long-paths>. |
 
 ## Notes
 
