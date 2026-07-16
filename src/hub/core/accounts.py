@@ -124,3 +124,40 @@ def add_accounts(config_path: str | Path, source: str,
     if added:
         yaml.dump(data, config_path.open("w", encoding="utf-8"))
     return added
+
+
+# option keys each connector accepts from the setup wizard (safety whitelist)
+WIZARD_OPTION_KEYS = {
+    "meta_ads": {"access_token", "ad_account_ids", "labels"},
+    "google_ads": {"developer_token", "customer_ids", "login_customer_id",
+                   "labels", "identity"},
+}
+
+
+def set_connector_options(config_path: str | Path, source: str,
+                          options: dict) -> None:
+    """Merge whitelisted option keys into connectors.<source>.options in
+    config.yaml (comments/anchors preserved). Used by the setup wizard for
+    token-based connectors (meta_ads, google_ads)."""
+    allowed = WIZARD_OPTION_KEYS.get(source)
+    if allowed is None:
+        raise KeyError(f"wizard cannot configure {source!r} "
+                       f"(supported: {sorted(WIZARD_OPTION_KEYS)})")
+    bad = set(options) - allowed
+    if bad:
+        raise KeyError(f"unsupported option(s) for {source}: {sorted(bad)}")
+    config_path = Path(config_path)
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.width = 4096
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    data = yaml.load(config_path.read_text(encoding="utf-8")) or {}
+    conn = data.setdefault("connectors", {}).setdefault(
+        source, {"schedule": "0 6 * * *", "options": {}})
+    opts = conn.setdefault("options", {})
+    for key, value in options.items():
+        if isinstance(value, dict):
+            opts.setdefault(key, {}).update(value)
+        else:
+            opts[key] = value
+    yaml.dump(data, config_path.open("w", encoding="utf-8"))

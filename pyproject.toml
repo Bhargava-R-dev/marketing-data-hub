@@ -4,8 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "marketing-data-hub"
-version = "0.1.0"
-description = "Personal Windsor.ai-style marketing data pipeline"
+version = "0.2.0"
+description = "Open-source Windsor.ai alternative: GA4, Search Console, Google Ads & Meta Ads into one local database - queryable by API, CSV, and AI assistants (MCP)"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Bhargava" }]
+keywords = ["marketing", "analytics", "ga4", "search-console", "mcp", "duckdb", "windsor"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Other Audience",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
 requires-python = ">=3.11"
 dependencies = [
     "ruamel.yaml>=0.18",
@@ -27,6 +39,10 @@ dependencies = [
 dev = ["pytest>=8.0", "httpx>=0.27"]
 googleads = ["google-ads>=24.0"]
 meta = ["facebook-business>=19.0"]
+
+[project.urls]
+Homepage = "https://github.com/rallabandibhargava-dev/marketing-data-hub"
+Issues = "https://github.com/rallabandibhargava-dev/marketing-data-hub/issues"
 
 [project.scripts]
 hub = "hub.cli:app"

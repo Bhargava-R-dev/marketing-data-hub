@@ -1,8 +1,34 @@
 # Marketing Data Hub
 
-Personal Windsor.ai-style pipeline: pulls GA4, Search Console, YouTube (and, once
-activated, Google Ads + Meta Ads) into a unified DuckDB schema, queryable via a
-Windsor-style REST API, scheduled CSV exports, and an MCP server for Claude.
+**Your marketing data, on your machine, free.** An open-source Windsor.ai
+alternative: pulls Google Analytics 4, Search Console (plus Google Ads, Meta
+Ads, YouTube) into one local database — queryable via a REST API, scheduled
+CSV exports, and by AI assistants like Claude (MCP). No hosted service, no
+subscription, your tokens never leave your computer.
+
+## Quick start (no config editing needed)
+
+```bash
+git clone https://github.com/rallabandibhargava-dev/marketing-data-hub
+cd marketing-data-hub
+python -m pip install -e .
+hub setup
+```
+
+`hub setup` opens a page in your browser where you:
+
+1. **Connect Google** — sign in, done (multiple Google accounts supported)
+2. **Tick the GA4 properties / Search Console sites** you want
+3. Optionally paste Google Ads / Meta Ads tokens
+4. **Run the first sync** and watch it load
+5. **Copy the Claude snippet** to ask questions in plain English
+
+One prerequisite: a Google OAuth client file at `secrets/google_client.json`
+(one-time, ~5 minutes — see [SETUP.md](SETUP.md) step 2; teams share one file).
+
+Then ask Claude things like *"How did organic traffic do in June vs May?"* or
+*"Top non-branded search queries this month?"* — or automate a daily 6am sync
+(SETUP.md, step 8).
 
 ## Reports (analysis shapes)
 

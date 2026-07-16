@@ -113,6 +113,12 @@ checks should go green. If you see auth errors later, delete
 
 ## 5. Pick your accounts (the easy way)
 
+**Easiest: the browser wizard.** `hub setup` opens a local page that walks
+through connecting Google, ticking accounts, ad-platform tokens, the first
+sync, and the Claude snippet — steps 4–7 of this guide in one place.
+
+Prefer the terminal?
+
 ```bash
 hub accounts            # lists every GA4 property & GSC site your login can see
 hub accounts --add      # shows a numbered list; type e.g. "3,7,12" to add them

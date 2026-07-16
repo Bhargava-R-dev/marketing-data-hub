@@ -168,6 +168,33 @@ def serve(config: str = CONFIG_OPT, host: str = "127.0.0.1", port: int = 8000):
 
 
 @app.command()
+def setup(config: str = CONFIG_OPT,
+          port: int = typer.Option(8770, help="Local port for the wizard"),
+          no_browser: bool = typer.Option(False, "--no-browser",
+                                          help="Don't auto-open the browser")):
+    """Open the browser setup wizard (the friendly, no-terminal path).
+
+    Connect Google accounts, tick the properties/sites to sync, paste ad
+    platform tokens, run the first sync, and copy the Claude MCP snippet -
+    all from one local page. Creates config.yaml from the example if absent."""
+    from pathlib import Path as _Path
+
+    from hub.setup_wizard import run_setup
+
+    cfg_path = _Path(config)
+    if not cfg_path.exists():
+        # a clean minimal config: the wizard fills in real accounts (the
+        # .example file has placeholder ids that would break a first sync)
+        cfg_path.write_text(
+            "# created by 'hub setup' - accounts are added via the wizard\n"
+            "db_path: data/hub.duckdb\nsecrets_dir: secrets\n"
+            "exports_dir: exports\n\nconnectors: {}\n\nexports: []\n",
+            encoding="utf-8")
+        typer.echo(f"[OK] created a fresh {cfg_path}")
+    run_setup(config, port=port, open_browser=not no_browser)
+
+
+@app.command()
 def login(name: str = typer.Argument(
               "default", help="Identity name for this Google login (e.g. personal)"),
           config: str = CONFIG_OPT):
