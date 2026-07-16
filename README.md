@@ -9,11 +9,13 @@ subscription, your tokens never leave your computer.
 ## Quick start (no config editing needed)
 
 ```bash
-git clone https://github.com/rallabandibhargava-dev/marketing-data-hub
-cd marketing-data-hub
-python -m pip install -e .
+pip install marketing-data-hub
+mkdir my-marketing-hub && cd my-marketing-hub
 hub setup
 ```
+
+(Developers: `git clone https://github.com/rallabandibhargava-dev/marketing-data-hub`
+and `pip install -e ".[dev]"` instead.)
 
 `hub setup` opens a page in your browser where you:
 
