@@ -8,8 +8,11 @@ connectors:
     window_days: 30
     options:
       property_ids: ["123456789", "987654321"]   # or property_id: "123..." for one
+      # identities:                # properties living under a DIFFERENT Google login
+      #   "987654321": personal    # -> uses secrets/google_token_personal.json
+      #   (add logins with: hub login personal; then: hub accounts --identity personal --add)
       # reports: [core, channels]  # optional: limit which report shapes sync
-      #   (ga4 has: core, channels, landing_pages, pages, audience, visitors)
+      #   (ga4 has: core, channels, landing_pages, pages, audience, visitors, events)
   gsc:
     schedule: "0 6 * * *"
     options:
@@ -22,15 +25,20 @@ connectors:
   youtube:
     schedule: "0 6 * * *"
     options: {}
-  # google_ads:            # activate when you have a developer token
+  # google_ads:            # activate when you have a developer token (see SETUP.md)
   #   options:
-  #     customer_id: "1234567890"
-  #     login_customer_id: "1234567890"
-  #     developer_token: "..."
-  # meta_ads:              # activate when you have a Meta app + token
+  #     developer_token: "..."          # ads.google.com > Tools & Settings > API Center
+  #     customer_ids: ["123-456-7890", "222-333-4444"]   # one or many
+  #     login_customer_id: "999-888-7777"   # your MCC/manager id if using one
+  #     labels:
+  #       "123-456-7890": "Client A"
+  #     # identity: personal   # if the Ads login is a non-default Google identity
+  # meta_ads:              # activate when you have a Meta app + token (see SETUP.md)
   #   options:
-  #     ad_account_id: "act_123"
-  #     access_token: "..."
+  #     access_token: "..."             # long-lived token with ads_read
+  #     ad_account_ids: ["act_123", "act_456"]           # one or many
+  #     labels:
+  #       "act_123": "Client A"
 
 exports:
   - name: daily_overview

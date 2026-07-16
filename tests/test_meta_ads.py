@@ -38,3 +38,15 @@ def test_authenticate_without_token_raises_hint():
     with pytest.raises(AuthError) as exc:
         conn.authenticate()
     assert "access_token" in exc.value.hint
+
+
+def test_multi_account_config_and_labels():
+    from hub.core.config import ConnectorSettings
+    conn = MetaAdsConnector(ConnectorSettings(options={
+        "access_token": "t", "ad_account_ids": ["act_1", "act_2"]}), ".")
+    conn.authenticate()  # must accept plural key
+    rows = parse_meta_insights(
+        [{"date_start": "2026-07-01", "campaign_id": "c", "campaign_name": "n",
+          "impressions": 5, "clicks": 1, "spend": "2.5", "actions": []}],
+        "act_1", None, "Client X")
+    assert rows[0]["account_name"] == "Client X"

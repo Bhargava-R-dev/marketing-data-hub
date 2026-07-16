@@ -144,6 +144,47 @@ hub status                                # row counts + last sync per source
   `claude mcp add marketing-hub -- python -m hub.cli mcp --config <absolute-path>/config.yaml`
   then ask Claude about your data. Use an **absolute** path to config.yaml.
 
+## Multiple Google accounts (identities)
+
+One GA4 property on your work gmail, another on a personal or client login?
+Add each login once, then pick accounts per login:
+
+```bash
+hub login personal                              # browser opens -> sign in with that account
+hub accounts --identity personal --add          # browse & add what THAT login can see
+```
+
+Each login's token is stored separately (`secrets/google_token_<name>.json`),
+added accounts remember which login owns them, and every sync automatically
+uses the right one. `hub login` with no name (re)authorizes the default login.
+
+## Activating Google Ads
+
+1. Sign in at <https://ads.google.com> → **Tools & Settings → Setup → API
+   Center** → apply for a **developer token**. (A Basic-access token needs a
+   short application; test-account access is instant.)
+2. `pip install -e ".[googleads]"`
+3. In config.yaml, uncomment `google_ads` and fill `developer_token`,
+   `customer_ids` (one or many, dashes ok), and `login_customer_id` (your
+   MCC/manager account id if the token hangs off one).
+4. No extra sign-in needed — it reuses the hub's Google login (the adwords
+   scope is already granted). If the Ads accounts live under a different
+   Google login, add `identity: <name>` after a `hub login <name>`.
+5. `hub doctor` → then `hub sync google_ads`.
+
+## Activating Meta Ads
+
+1. <https://developers.facebook.com> → **Create App** (type: Business).
+2. Add the **Marketing API** product. Under Tools → Graph API Explorer (or
+   System User in Business Settings, better for permanence): generate a token
+   with the **ads_read** permission, then extend it to a **long-lived token**
+   (Business Settings → System User tokens don't expire; Explorer tokens can
+   be extended at developers.facebook.com/tools/debug/accesstoken).
+3. `pip install -e ".[meta]"`
+4. In config.yaml, uncomment `meta_ads` and fill `access_token` and
+   `ad_account_ids` (the `act_...` ids from Ads Manager's URL).
+5. `hub doctor` → then `hub sync meta_ads`.
+
 ## 8. Automate the daily sync (optional)
 
 - **Windows:** Task Scheduler → new daily task → action runs

@@ -79,12 +79,13 @@ def annotate_configured(accounts: list[dict], config) -> list[dict]:
 
 
 def add_accounts(config_path: str | Path, source: str,
-                 selections: list[dict]) -> list[str]:
+                 selections: list[dict], identity: str = "default") -> list[str]:
     """Append selected accounts to config.yaml, preserving comments/anchors.
 
     selections: [{"id": ..., "name": ...}]. Ids already present are skipped.
     Returns the ids actually added. Creates the connector block (with the
-    default schedule) if it isn't in the config yet."""
+    default schedule) if it isn't in the config yet. A non-default identity
+    records which Google login owns each added account (options.identities)."""
     if source not in SOURCE_KEYS:
         raise KeyError(f"account selection not supported for {source!r} "
                        f"(supported: {list(SOURCE_KEYS)})")
@@ -115,6 +116,8 @@ def add_accounts(config_path: str | Path, source: str,
         ids.append(sid)
         if sel.get("name"):
             labels[sid] = sel["name"]
+        if identity and identity != "default":
+            opts.setdefault("identities", {})[sid] = identity
         existing.add(sid)
         added.append(sid)
 

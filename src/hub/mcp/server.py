@@ -278,6 +278,12 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             date_to=date_to, source=source, campaign=campaign, brand=brand,
             report=report, filters=filters, compare=compare)
 
+    def _identity_for(connector: str, target: str) -> str | None:
+        """Which Google login owns this property/site (options.identities)."""
+        if connector not in config.connectors:
+            return None
+        return (config.connectors[connector].options.get("identities") or {}).get(target)
+
     def _resolve_target(connector: str, plural_key: str, target: str | None,
                         brand: str | None) -> str | dict:
         """Turn a brand name or explicit id into one configured GA4 property /
@@ -319,7 +325,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             target = _resolve_target("ga4", "property_ids", property_id, brand)
             if isinstance(target, dict):
                 return target
-            creds = get_credentials(config.secrets_dir)
+            creds = get_credentials(config.secrets_dir,
+                                    identity=_identity_for("ga4", target))
             client = BetaAnalyticsDataClient(credentials=creds)
             response = client.run_report(RunReportRequest(
                 property=f"properties/{target}",
@@ -355,7 +362,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             target = _resolve_target("gsc", "site_urls", site_url, brand)
             if isinstance(target, dict):
                 return target
-            creds = get_credentials(config.secrets_dir)
+            creds = get_credentials(config.secrets_dir,
+                                    identity=_identity_for("gsc", target))
             service = build("searchconsole", "v1", credentials=creds,
                             cache_discovery=False)
             resp = service.searchanalytics().query(siteUrl=target, body={
@@ -371,42 +379,60 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             return {"error": str(exc)}
 
     @mcp.tool()
-    def list_available_accounts(source: str | None = None) -> list[dict] | dict:
+    def list_identities() -> dict:
+        """List the Google logins (identities) that have saved tokens. The hub
+        supports multiple Google accounts: 'default' is the original login;
+        more are added by running 'hub login <name>' in a terminal (it opens a
+        browser to sign in - it cannot be done from here). Pass an identity to
+        list_available_accounts to browse what that login can see."""
+        try:
+            from hub.connectors.google_auth import list_identities as _idents
+
+            return {"identities": _idents(config.secrets_dir),
+                    "add_more": "run in a terminal: hub login <name>"}
+        except Exception as exc:  # noqa: BLE001 - return readable errors to the model
+            return {"error": str(exc)}
+
+    @mcp.tool()
+    def list_available_accounts(source: str | None = None,
+                                identity: str = "default") -> list[dict] | dict:
         """Windsor-style onboarding: list every GA4 property and Search Console
-        site the authorized Google login can access (source: "ga4" | "gsc" |
-        omit for both), with configured=true on those already syncing. Show the
-        user the unconfigured ones and ask which to add, then call
-        add_accounts with their selection."""
+        site one Google login can access (source: "ga4" | "gsc" | omit for
+        both), with configured=true on those already syncing. With multiple
+        logins, pass identity= (see list_identities). Show the user the
+        unconfigured ones and ask which to add, then call add_accounts."""
         try:
             from hub.connectors.google_auth import get_credentials
             from hub.core.accounts import annotate_configured, discover_all
 
-            creds = get_credentials(config.secrets_dir)
+            creds = get_credentials(config.secrets_dir, identity=identity)
             return annotate_configured(discover_all(creds, source), config)
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
     @mcp.tool()
-    def add_accounts(source: str, account_ids: list[str]) -> dict:
+    def add_accounts(source: str, account_ids: list[str],
+                     identity: str = "default") -> dict:
         """Add accounts the user selected to config.yaml (source: "ga4" or
         "gsc"; account_ids from list_available_accounts). Labels are filled
-        from the account names automatically. Only ids visible to the Google
-        login are accepted. ALWAYS confirm the specific accounts with the user
-        before calling this. After adding: trigger_sync for a first load, and
-        suggest a backfill for history."""
+        from the account names automatically; pass the same identity= you used
+        for list_available_accounts so syncs use the right Google login. Only
+        ids visible to that login are accepted. ALWAYS confirm the specific
+        accounts with the user before calling this. After adding: trigger_sync
+        for a first load, and suggest a backfill for history."""
         try:
             from hub.connectors.google_auth import get_credentials
             from hub.core.accounts import add_accounts as _add
             from hub.core.accounts import discover_all
 
-            creds = get_credentials(config.secrets_dir)
+            creds = get_credentials(config.secrets_dir, identity=identity)
             visible = {a["id"]: a for a in discover_all(creds, source)}
             unknown = [i for i in account_ids if i not in visible]
             if unknown:
                 return {"error": f"not visible to this Google login: {unknown}",
                         "hint": "use ids exactly as returned by list_available_accounts"}
             added = _add(config_path, source,
-                         [visible[i] for i in account_ids])
+                         [visible[i] for i in account_ids], identity=identity)
             # keep the in-memory config consistent for later calls this session
             # (a brand-new connector block only exists in the file; the running
             # server picks it up because trigger_sync re-reads config.yaml)

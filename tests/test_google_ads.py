@@ -33,3 +33,25 @@ def test_authenticate_without_dev_token_raises_hint():
     with pytest.raises(AuthError) as exc:
         conn.authenticate()
     assert "developer_token" in exc.value.hint
+
+
+def test_multi_customer_ids_and_labels(tmp_path):
+    import json
+    from hub.core.config import ConnectorSettings
+    (tmp_path / "google_token.json").write_text(json.dumps(
+        {"refresh_token": "r", "client_id": "c", "client_secret": "s"}), encoding="utf-8")
+    (tmp_path / "google_client.json").write_text(json.dumps(
+        {"installed": {"client_id": "c", "client_secret": "s"}}), encoding="utf-8")
+    conn = GoogleAdsConnector(ConnectorSettings(options={
+        "developer_token": "dev", "customer_ids": ["111-222-3333", "444-555-6666"],
+        "labels": {"111-222-3333": "Brand A"}}), tmp_path)
+    conn.authenticate()
+    # no explicit login_customer_id -> falls back to first customer id, dashes stripped
+    assert conn._ads_config["login_customer_id"] == "1112223333"
+    rows = parse_google_ads_rows([{
+        "segments.date": "2026-07-01", "campaign.id": 1, "campaign.name": "x",
+        "metrics.impressions": 10, "metrics.clicks": 1, "metrics.cost_micros": 5_000_000,
+        "metrics.conversions": 0, "metrics.conversions_value": 0,
+    }], "111-222-3333", "Brand A")
+    assert rows[0]["account_name"] == "Brand A"
+    assert rows[0]["spend"] == 5.0

@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Iterable
 
-from hub.connectors.base import BaseConnector, FieldRegistry, FieldSpec, resolve_targets
+from hub.connectors.base import (BaseConnector, FieldRegistry, FieldSpec,
+                                 group_by_identity, resolve_targets)
 from hub.connectors.google_auth import get_credentials
 
 _PAGE_SIZE = 250_000  # GA4 Data API max rows per request
@@ -119,7 +120,13 @@ class GA4Connector(BaseConnector):
     reports = GA4_REPORTS
 
     def authenticate(self) -> None:
-        self._creds = get_credentials(self.secrets_dir)
+        # one credential per Google login: properties may live under different
+        # gmail/google accounts, mapped via options.identities
+        property_ids = resolve_targets(self.settings.options, "property_ids", "property_id")
+        groups = group_by_identity(property_ids, self.settings.options)
+        self._creds = {ident: get_credentials(self.secrets_dir, identity=ident)
+                       for ident in groups}
+        self._groups = groups
 
     def extract(self, date_from: date, date_to: date) -> Iterable[dict]:
         return self.extract_report("core", date_from, date_to)
@@ -130,14 +137,14 @@ class GA4Connector(BaseConnector):
 
         registry = self.get_reports()[report]
         n2u = registry.native_to_unified()
-        property_ids = resolve_targets(self.settings.options, "property_ids", "property_id")
         labels = self.settings.options.get("labels", {})
-        client = BetaAnalyticsDataClient(credentials=self._creds)
         results: list[dict] = []
-        for property_id in property_ids:
-            results.extend(self._fetch_range(
-                client, registry, n2u, property_id, labels.get(property_id),
-                date_from, date_to))
+        for identity, property_ids in self._groups.items():
+            client = BetaAnalyticsDataClient(credentials=self._creds[identity])
+            for property_id in property_ids:
+                results.extend(self._fetch_range(
+                    client, registry, n2u, property_id, labels.get(property_id),
+                    date_from, date_to))
         return results
 
     def _fetch_range(self, client, registry: FieldRegistry, n2u: dict,

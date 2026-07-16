@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Iterable
 
-from hub.connectors.base import BaseConnector, FieldRegistry, FieldSpec, resolve_targets
+from hub.connectors.base import (BaseConnector, FieldRegistry, FieldSpec,
+                                 group_by_identity, resolve_targets)
 from hub.connectors.google_auth import get_credentials
 
 _ROW_LIMIT = 25_000  # Search Console API max rows per request
@@ -81,7 +82,12 @@ class SearchConsoleConnector(BaseConnector):
     reports = GSC_REPORTS
 
     def authenticate(self) -> None:
-        self._creds = get_credentials(self.secrets_dir)
+        # sites may live under different Google logins (options.identities)
+        site_urls = resolve_targets(self.settings.options, "site_urls", "site_url")
+        groups = group_by_identity(site_urls, self.settings.options)
+        self._creds = {ident: get_credentials(self.secrets_dir, identity=ident)
+                       for ident in groups}
+        self._groups = groups
 
     def extract(self, date_from: date, date_to: date) -> Iterable[dict]:
         return self.extract_report("core", date_from, date_to)
@@ -95,11 +101,19 @@ class SearchConsoleConnector(BaseConnector):
         # fields (native '_...') are filled locally, never sent to the API
         dims = tuple(s.name for s in registry.dimensions()
                      if not s.native.startswith("_"))
-        site_urls = resolve_targets(self.settings.options, "site_urls", "site_url")
         labels = self.settings.options.get("labels", {})
         brand_terms: dict = self.settings.options.get("brand_terms", {})
-        service = build("searchconsole", "v1", credentials=self._creds,
-                        cache_discovery=False)
+        results: list[dict] = []
+        for identity, site_urls in self._groups.items():
+            service = build("searchconsole", "v1", credentials=self._creds[identity],
+                            cache_discovery=False)
+            results.extend(self._extract_sites(
+                service, site_urls, dims, labels, brand_terms,
+                report, date_from, date_to))
+        return results
+
+    def _extract_sites(self, service, site_urls, dims, labels, brand_terms,
+                       report, date_from, date_to) -> list[dict]:
         results: list[dict] = []
         for site_url in site_urls:
             site_rows: list[dict] = []

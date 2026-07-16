@@ -33,7 +33,9 @@ class YouTubeConnector(BaseConnector):
     fields = YOUTUBE_FIELDS
 
     def authenticate(self) -> None:
-        self._creds = get_credentials(self.secrets_dir)
+        # options.identity picks which Google login owns this channel
+        self._creds = get_credentials(
+            self.secrets_dir, identity=self.settings.options.get("identity"))
 
     def extract(self, date_from: date, date_to: date) -> Iterable[dict]:
         from googleapiclient.discovery import build

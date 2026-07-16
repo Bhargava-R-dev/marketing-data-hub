@@ -48,6 +48,17 @@ class FieldRegistry:
                  "description": s.description} for s in self.specs]
 
 
+def group_by_identity(targets: list[str], options: dict) -> dict[str, list[str]]:
+    """Group targets (property ids / site urls / account ids) by which Google
+    login owns them. options.identities maps target -> identity name; anything
+    unmapped belongs to the 'default' identity (the original single login)."""
+    mapping = options.get("identities") or {}
+    groups: dict[str, list[str]] = {}
+    for t in targets:
+        groups.setdefault(str(mapping.get(t, "default")), []).append(t)
+    return groups
+
+
 def resolve_targets(options: dict, plural_key: str, singular_key: str) -> list[str]:
     """Connector options may name one target (property_id: "123") or many
     (property_ids: ["123", "456"]). Returns the list either way."""

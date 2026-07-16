@@ -168,22 +168,47 @@ def serve(config: str = CONFIG_OPT, host: str = "127.0.0.1", port: int = 8000):
 
 
 @app.command()
+def login(name: str = typer.Argument(
+              "default", help="Identity name for this Google login (e.g. personal)"),
+          config: str = CONFIG_OPT):
+    """Authorize an (additional) Google account.
+
+    Each login is saved as its own identity: 'default' is the original
+    google_token.json; any other name becomes google_token_<name>.json.
+    Properties/sites are assigned to identities via 'hub accounts --identity
+    <name> --add' (or options.identities in config.yaml)."""
+    from hub.connectors.google_auth import list_identities
+    from hub.connectors.google_auth import login as google_login
+
+    cfg = _load(config)
+    typer.echo(f"Opening browser - sign in with the Google account for identity {name!r}...")
+    google_login(cfg.secrets_dir, identity=name)
+    typer.echo(f"[OK] saved. Identities now available: {list_identities(cfg.secrets_dir)}")
+    typer.echo(f"Next: hub accounts --identity {name} --add")
+
+
+@app.command()
 def accounts(source: str | None = typer.Argument(
                  None, help="ga4 | gsc (default: both)"),
              add: bool = typer.Option(False, "--add", help="Select and add accounts"),
              ids: list[str] = typer.Option(
                  None, "--id", help="Add these ids non-interactively (with --add)"),
+             identity: str = typer.Option(
+                 "default", "--identity",
+                 help="Which Google login to browse (see 'hub login')"),
              config: str = CONFIG_OPT):
-    """List every account the Google login can see; --add to select & save.
+    """List every account a Google login can see; --add to select & save.
 
     Windsor-style onboarding: shows all GA4 properties / GSC sites available
     to the authorized token, marks configured ones, and writes selections to
-    config.yaml (labels auto-filled from the account names)."""
+    config.yaml (labels auto-filled from the account names). With multiple
+    Google logins, pass --identity to browse each one; added accounts remember
+    which identity owns them."""
     from hub.connectors.google_auth import get_credentials
     from hub.core.accounts import add_accounts, annotate_configured, discover_all
 
     cfg = _load(config)
-    creds = get_credentials(cfg.secrets_dir)
+    creds = get_credentials(cfg.secrets_dir, identity=identity)
     found = annotate_configured(discover_all(creds, source), cfg)
     if not found:
         typer.echo("No accounts visible to this Google login.")
@@ -220,10 +245,11 @@ def accounts(source: str | None = typer.Argument(
         sels = [a for a in chosen if a["source"] == src and not a["configured"]]
         if not sels:
             continue
-        added = add_accounts(config, src, sels)
+        added = add_accounts(config, src, sels, identity=identity)
         added_total += len(added)
         for a in sels:
-            typer.echo(f"[OK] added {src}: {a['name']} ({a['id']})")
+            typer.echo(f"[OK] added {src}: {a['name']} ({a['id']})"
+                       + (f" [identity: {identity}]" if identity != "default" else ""))
     skipped = [a for a in chosen if a["configured"]]
     for a in skipped:
         typer.echo(f"[SKIP] already configured: {a['id']}")
