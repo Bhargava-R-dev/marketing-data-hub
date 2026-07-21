@@ -28,6 +28,10 @@ and `pip install -e ".[dev]"` instead.)
 One prerequisite: a Google OAuth client file at `secrets/google_client.json`
 (one-time, ~5 minutes — see [SETUP.md](SETUP.md) step 2; teams share one file).
 
+**Never used a terminal? → [GUIDE.md](GUIDE.md)** is a complete, plain-English
+walkthrough from installing Python through asking your first question — written
+for non-technical teammates, and made to be shared.
+
 Then ask Claude things like *"How did organic traffic do in June vs May?"* or
 *"Top non-branded search queries this month?"* — or automate a daily 6am sync
 (SETUP.md, step 8).
