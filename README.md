@@ -52,6 +52,11 @@ double-count):
 | gsc | `devices` / `countries` | mobile/desktop and geo splits |
 | ga4 | `events` | per-event counts by name (brand-specific: form_submit, call_click...) |
 
+GA4 breakdown reports exclude GA4's unattributable `(other)` bucket, so they
+sum to slightly **under** the topline (on very large properties, well under
+for high-cardinality dims like landing pages) — use `core` for exact totals,
+breakdowns for composition/ranking. Same idea as GSC query anonymisation.
+
 Pass `report=<name>` to the API/MCP `query_metrics`; default is `core`.
 MCP `query_metrics` also supports `compare=` (prev_period / prev_day / prev_week /
 prev_month / prev_year — returns value, previous, and %-change per metric for any

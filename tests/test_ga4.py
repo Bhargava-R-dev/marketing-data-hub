@@ -39,62 +39,43 @@ def test_connector_metadata():
         "date", "campaign", "sessions", "users", "conversions", "conversion_value"}
 
 
-# ---- '(other)' cardinality-overflow bisection ---------------------------
+# ---- GA4 '(other)' rows are dropped, not stored -------------------------
 
-from datetime import date as _date
-
-from hub.connectors.base import FieldRegistry as _FR
-from hub.connectors.ga4 import GA4_REPORTS, GA4Connector, has_other_row
-from hub.core.config import ConnectorSettings as _CS
+from hub.connectors.ga4 import GA4_REPORTS, parse_ga4_report
 
 
-def test_has_other_row():
-    dims = ["device", "country"]
-    assert has_other_row([{"device": "(other)", "country": "India"}], dims)
-    assert not has_other_row([{"device": "mobile", "country": "(other) places"}], dims)
-    assert not has_other_row([{"device": "mobile", "sessions": "5"}], dims)
+def _audience_report(rows):
+    return {
+        "dimensionHeaders": [{"name": "date"}, {"name": "deviceCategory"},
+                             {"name": "country"}],
+        "metricHeaders": [{"name": "sessions"}, {"name": "totalUsers"},
+                          {"name": "keyEvents"}, {"name": "engagedSessions"}],
+        "rows": [{"dimensionValues": [{"value": d} for d in dims],
+                  "metricValues": [{"value": m} for m in mets]}
+                 for dims, mets in rows],
+    }
 
 
-class BisectProbe(GA4Connector):
-    """Stub _fetch_once: multi-day ranges come back cardinality-collapsed,
-    single days come back clean — mirrors real GA4 on huge properties."""
-
-    def __init__(self):
-        super().__init__(_CS(options={"property_id": "1"}), ".")
-        self.calls = []
-
-    def _fetch_once(self, client, registry, n2u, property_id, label,
-                    date_from, date_to):
-        self.calls.append((date_from, date_to))
-        if date_from < date_to:
-            return [{"date": date_from.isoformat(), "account_id": "1",
-                     "device": "(other)", "country": "(other)", "sessions": "999"}]
-        return [{"date": date_from.isoformat(), "account_id": "1",
-                 "device": "mobile", "country": "India", "sessions": "10"}]
-
-
-def test_fetch_range_bisects_until_clean():
-    probe = BisectProbe()
+def test_other_rows_are_dropped():
+    # the spurious '(other)' bucket must NOT be stored (it inflated totals)
     reg = GA4_REPORTS["audience"]
-    rows = probe._fetch_range(None, reg, reg.native_to_unified(), "1", None,
-                              _date(2026, 6, 1), _date(2026, 6, 4))
-    assert len(rows) == 4  # one clean row per day
-    assert all(r["device"] == "mobile" for r in rows)
-    # every returned row came from a single-day request
-    single_day_calls = [c for c in probe.calls if c[0] == c[1]]
-    assert len(single_day_calls) == 4
+    report = _audience_report([
+        (["20260610", "mobile", "India"], ["728354", "1", "0", "1"]),
+        (["20260610", "(other)", "(other)"], ["442578", "1", "0", "1"]),
+        (["20260610", "desktop", "India"], ["37352", "1", "0", "1"]),
+    ])
+    out = parse_ga4_report(report, "1", "Sharekhan", reg.native_to_unified())
+    devices = [r["device"] for r in out]
+    assert "(other)" not in devices
+    assert devices == ["mobile", "desktop"]
+    assert sum(int(r["sessions"]) for r in out) == 765706  # no phantom 442k
 
 
-def test_fetch_range_keeps_single_day_other():
-    # a single day that still overflows is stored as-is (no finer split)
-    class AlwaysOther(BisectProbe):
-        def _fetch_once(self, client, registry, n2u, property_id, label,
-                        date_from, date_to):
-            return [{"date": date_from.isoformat(), "account_id": "1",
-                     "device": "(other)", "country": "(other)", "sessions": "7"}]
-
-    probe = AlwaysOther()
+def test_other_in_any_dimension_is_dropped():
     reg = GA4_REPORTS["audience"]
-    rows = probe._fetch_range(None, reg, reg.native_to_unified(), "1", None,
-                              _date(2026, 6, 1), _date(2026, 6, 1))
-    assert len(rows) == 1 and rows[0]["device"] == "(other)"
+    report = _audience_report([
+        (["20260610", "mobile", "(other)"], ["100", "1", "0", "1"]),  # dropped
+        (["20260610", "mobile", "India"], ["50", "1", "0", "1"]),
+    ])
+    out = parse_ga4_report(report, "1", "Sharekhan", reg.native_to_unified())
+    assert len(out) == 1 and out[0]["country"] == "India"

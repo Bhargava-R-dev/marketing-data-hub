@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Iterable
 
 from hub.connectors.base import (BaseConnector, FieldRegistry, FieldSpec,
@@ -8,15 +8,6 @@ from hub.connectors.base import (BaseConnector, FieldRegistry, FieldSpec,
 from hub.connectors.google_auth import get_credentials
 
 _PAGE_SIZE = 250_000  # GA4 Data API max rows per request
-
-
-def has_other_row(rows: list[dict], dim_names: list[str]) -> bool:
-    """True if GA4 collapsed excess cardinality into an '(other)' row.
-
-    '(other)' metrics can DOUBLE-COUNT with named rows (documented GA4
-    behaviour), silently inflating totals by 40%+ on huge properties —
-    callers must re-fetch a smaller date range instead of storing them."""
-    return any(r.get(d) == "(other)" for r in rows for d in dim_names)
 
 GA4_FIELDS = FieldRegistry([
     FieldSpec("date", "date", dimension=True),
@@ -102,10 +93,18 @@ def parse_ga4_report(report: dict, property_id: str, account_name: str | None = 
     mets = [h["name"] for h in report.get("metricHeaders", [])]
     out = []
     for row in report.get("rows", []):
+        values = [v["value"] for v in row["dimensionValues"]]
+        # GA4 buckets unattributable/overflow rows into a spurious '(other)' row
+        # whose metrics do NOT reconcile with the real total (it inflated big
+        # properties' breakdowns by 30-40%). Drop it: breakdown reports then sum
+        # to slightly UNDER the topline (like GSC query anonymisation) - use the
+        # 'core' report for exact totals.
+        if "(other)" in values:
+            continue
         raw: dict = {"account_id": property_id,
                      "account_name": account_name or f"GA4 {property_id}"}
-        for name, v in zip(dims, row["dimensionValues"]):
-            raw[n2u[name]] = v["value"]
+        for name, value in zip(dims, values):
+            raw[n2u[name]] = value
         for name, v in zip(mets, row["metricValues"]):
             raw[n2u[name]] = v["value"]
         d = raw["date"]  # GA4 returns YYYYMMDD
@@ -142,33 +141,16 @@ class GA4Connector(BaseConnector):
         for identity, property_ids in self._groups.items():
             client = BetaAnalyticsDataClient(credentials=self._creds[identity])
             for property_id in property_ids:
-                results.extend(self._fetch_range(
+                results.extend(self._fetch(
                     client, registry, n2u, property_id, labels.get(property_id),
                     date_from, date_to))
         return results
 
-    def _fetch_range(self, client, registry: FieldRegistry, n2u: dict,
-                     property_id: str, label: str | None,
-                     date_from: date, date_to: date) -> list[dict]:
-        """Fetch one property/range; bisect the range whenever GA4 collapses
-        cardinality into '(other)' rows, which double-count (single-day
-        requests stay under the limit even for very large properties). A
-        single day that still returns '(other)' is kept — no finer split
-        exists."""
-        rows = self._fetch_once(client, registry, n2u, property_id, label,
-                                date_from, date_to)
-        dims = [s.name for s in registry.dimensions() if s.name != "date"]
-        if date_from < date_to and has_other_row(rows, dims):
-            mid = date_from + timedelta(days=(date_to - date_from).days // 2)
-            return (self._fetch_range(client, registry, n2u, property_id, label,
-                                      date_from, mid)
-                    + self._fetch_range(client, registry, n2u, property_id, label,
-                                        mid + timedelta(days=1), date_to))
-        return rows
-
-    def _fetch_once(self, client, registry: FieldRegistry, n2u: dict,
-                    property_id: str, label: str | None,
-                    date_from: date, date_to: date) -> list[dict]:
+    def _fetch(self, client, registry: FieldRegistry, n2u: dict,
+               property_id: str, label: str | None,
+               date_from: date, date_to: date) -> list[dict]:
+        """Fetch one property/range, paging past the row cap. '(other)' rows
+        are dropped in parse_ga4_report (they don't reconcile with totals)."""
         from google.analytics.data_v1beta.types import (
             DateRange, Dimension, Metric, RunReportRequest, RunReportResponse)
 
