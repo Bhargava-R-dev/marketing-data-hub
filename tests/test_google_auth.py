@@ -117,7 +117,7 @@ def test_login_fetches_and_saves_label(tmp_path, monkeypatch):
             return "{}"
 
     class FakeFlow:
-        def run_local_server(self, port):
+        def run_local_server(self, port, timeout_seconds=None):
             return FakeCreds()
 
     monkeypatch.setattr(
@@ -156,3 +156,47 @@ def test_backfill_leaves_underscoped_token_unlabelled(tmp_path):
     token_path_for(tmp_path, "old").write_text(json.dumps(token), encoding="utf-8")
     assert backfill_identity_labels(tmp_path) == {}
     assert get_identity_labels(tmp_path) == {}
+
+
+# ---- unattended-sync safety: bounded login timeout, not an infinite hang --
+
+def test_login_passes_bounded_timeout_to_run_local_server(tmp_path, monkeypatch):
+    from hub.connectors import google_auth as ga
+
+    (tmp_path / "google_client.json").write_text("{}", encoding="utf-8")
+    captured = {}
+
+    class FakeCreds:
+        def to_json(self):
+            return "{}"
+
+    class FakeFlow:
+        def run_local_server(self, port, timeout_seconds=None):
+            captured["timeout_seconds"] = timeout_seconds
+            return FakeCreds()
+
+    monkeypatch.setattr(
+        "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
+        lambda *a, **k: FakeFlow())
+    monkeypatch.setattr(ga, "fetch_account_email", lambda creds: None)
+    ga.login(tmp_path, identity="work")
+    assert captured["timeout_seconds"] == ga._LOGIN_TIMEOUT_SECONDS
+    assert captured["timeout_seconds"] is not None  # must be bounded, not infinite
+
+
+def test_login_timeout_raises_actionable_autherror_not_hanging(tmp_path, monkeypatch):
+    from hub.connectors import google_auth as ga
+
+    (tmp_path / "google_client.json").write_text("{}", encoding="utf-8")
+
+    class TimesOutFlow:
+        def run_local_server(self, port, timeout_seconds=None):
+            raise TimeoutError("no response received")  # stand-in for WSGITimeoutError
+
+    monkeypatch.setattr(
+        "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
+        lambda *a, **k: TimesOutFlow())
+    with pytest.raises(AuthError) as exc:
+        ga.login(tmp_path, identity="personal")
+    assert "personal" in str(exc.value)
+    assert "hub login personal" in exc.value.hint

@@ -15,6 +15,13 @@ GOOGLE_SCOPES = [
 ]
 
 _LABELS_FILE = "identity_labels.json"
+# an unattended run (the daily scheduled sync) has nobody to complete a
+# browser consent flow - without a bound, a token needing re-consent hangs
+# the process for hours until something force-kills it mid-blocking-socket-
+# call, which corrupts CPython's interpreter state (a "Fatal Python error",
+# not a catchable exception). Bounding it makes that same situation fail
+# cleanly and fast instead.
+_LOGIN_TIMEOUT_SECONDS = 120
 
 _IDENTITY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -148,7 +155,11 @@ def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
 def login(secrets_dir: str | Path, identity: str | None = None,
           scopes: list[str] | None = None):
     """Run the interactive browser consent flow for one identity and save its
-    token. Sign in with WHICHEVER Google account should own this identity."""
+    token. Sign in with WHICHEVER Google account should own this identity.
+
+    Bounded by _LOGIN_TIMEOUT_SECONDS: if nobody completes sign-in in time
+    (e.g. this got triggered by an unattended scheduled sync instead of an
+    interactive session), raises AuthError instead of blocking forever."""
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     secrets_dir = Path(secrets_dir)
@@ -159,7 +170,16 @@ def login(secrets_dir: str | Path, identity: str | None = None,
             "No Google OAuth client found.",
             hint=f"Save your OAuth client JSON as {client_path} first.")
     flow = InstalledAppFlow.from_client_secrets_file(str(client_path), scopes)
-    creds = flow.run_local_server(port=0)
+    try:
+        creds = flow.run_local_server(port=0, timeout_seconds=_LOGIN_TIMEOUT_SECONDS)
+    except Exception as exc:  # noqa: BLE001 - WSGITimeoutError isn't guaranteed importable
+        raise AuthError(
+            f"Google sign-in for identity {identity or 'default'!r} was not "
+            f"completed within {_LOGIN_TIMEOUT_SECONDS}s.",
+            hint="If this ran unattended (a scheduled sync), the token needs "
+                 f"re-consent - run 'hub login {identity or 'default'}' "
+                 "interactively first. If you were signing in, just try again."
+        ) from exc
     secrets_dir.mkdir(parents=True, exist_ok=True)
     token_path_for(secrets_dir, identity).write_text(creds.to_json(), encoding="utf-8")
     email = fetch_account_email(creds)
