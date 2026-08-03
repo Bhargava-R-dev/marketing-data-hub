@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "marketing-data-hub"
-version = "0.2.1"
+version = "0.3.0"
 description = "Open-source Windsor.ai alternative: GA4, Search Console, Google Ads & Meta Ads into one local database - queryable by API, CSV, and AI assistants (MCP)"
 readme = "README.md"
 license = { file = "LICENSE" }

@@ -147,6 +147,21 @@ def _run_exports(cfg: HubConfig, storage, only: str | None = None) -> None:
 
 
 @app.command()
+def dashboard(config: str = CONFIG_OPT,
+             port: int = typer.Option(8773, help="Local port for the dashboard"),
+             no_browser: bool = typer.Option(False, "--no-browser",
+                                             help="Don't auto-open the browser")):
+    """Open the read-only dashboard: what's synced, per brand, anytime.
+
+    Works independently of 'hub setup' - check what data you have without
+    going through setup again."""
+    from hub.dashboard import run_dashboard
+
+    _load(config)  # fail fast with a clear message if config.yaml is missing
+    run_dashboard(config, port=port, open_browser=not no_browser)
+
+
+@app.command()
 def serve(config: str = CONFIG_OPT, host: str = "127.0.0.1", port: int = 8000):
     """Run the query API + scheduler."""
     import uvicorn

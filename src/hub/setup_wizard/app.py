@@ -14,12 +14,14 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from hub.core.config import load_config
+from hub.dashboard import dashboard_router
 from hub.setup_wizard.page import render_page
 
 
 def create_setup_app(config_path: str | Path) -> FastAPI:
     config_path = Path(config_path).resolve()
     app = FastAPI(title="Marketing Data Hub Setup")
+    app.include_router(dashboard_router(config_path))  # same-process "Open dashboard"
     run_token = secrets.token_hex(16)
     login_threads: dict[str, threading.Thread] = {}
     state = {"shutdown": False}
@@ -40,9 +42,13 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
     @app.get("/api/state")
     def get_state(request: Request) -> dict:
         check_token(request)
-        from hub.connectors.google_auth import list_identities
+        from hub.connectors.google_auth import backfill_identity_labels, list_identities
 
         c = cfg()
+        labels = backfill_identity_labels(c.secrets_dir)  # never opens a browser
+        identities = [{"identity": ident, "label": labels.get(ident),
+                       "needs_reauth": ident not in labels}
+                      for ident in list_identities(c.secrets_dir)]
         connectors = {}
         for source, settings in c.connectors.items():
             opts = settings.options
@@ -69,19 +75,35 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
             conn.close()
         except Exception:  # noqa: BLE001 - db missing or locked by a sync
             busy = True
-        return {"identities": list_identities(c.secrets_dir),
+        return {"identities": identities,
                 "logins_pending": [n for n, t in login_threads.items() if t.is_alive()],
                 "connectors": connectors, "coverage": coverage, "db_busy": busy,
                 "config_path": str(config_path)}
 
     # ---- google login ---------------------------------------------------
+    def _next_identity_slug(secrets_dir) -> str:
+        """Auto-assign an internal slug — the user never names or sees this;
+        the UI shows the fetched email instead (see /api/state)."""
+        from hub.connectors.google_auth import list_identities
+
+        existing = set(list_identities(secrets_dir)) | set(login_threads)
+        if "default" not in existing:
+            return "default"
+        n = 2
+        while f"account{n}" in existing:
+            n += 1
+        return f"account{n}"
+
     @app.post("/api/google/connect")
-    def google_connect(request: Request, body: dict) -> dict:
+    def google_connect(request: Request, body: dict | None = None) -> dict:
         check_token(request)
-        identity = (body.get("identity") or "default").strip() or "default"
+        body = body or {}
+        c = cfg()
+        # 'identity' is accepted for backward compat / power users, but the
+        # wizard UI itself never asks for one - it's auto-assigned
+        identity = (body.get("identity") or "").strip() or _next_identity_slug(c.secrets_dir)
         if identity in login_threads and login_threads[identity].is_alive():
             return {"status": "already_running"}
-        c = cfg()
         client = Path(c.secrets_dir) / "google_client.json"
         if not client.exists():
             return {"error": f"Google sign-in file missing: put google_client.json "
@@ -97,12 +119,13 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
         t = threading.Thread(target=run_login, daemon=True)
         t.start()
         login_threads[identity] = t
-        return {"status": "started",
+        return {"status": "started", "identity": identity,
                 "note": "a Google sign-in tab opened - complete it there"}
 
     # ---- account discovery / add ----------------------------------------
     @app.get("/api/accounts")
-    def get_accounts(request: Request, identity: str = "default") -> list | dict:
+    def get_accounts(request: Request, identity: str = "default",
+                     source: str | None = None) -> list | dict:
         check_token(request)
         try:
             from hub.connectors.google_auth import get_credentials, token_path_for
@@ -112,7 +135,7 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
             if not token_path_for(c.secrets_dir, identity).exists():
                 return {"error": f"identity {identity!r} is not connected yet"}
             creds = get_credentials(c.secrets_dir, identity=identity)
-            return annotate_configured(discover_all(creds), c)
+            return annotate_configured(discover_all(creds, source), c)
         except Exception as exc:  # noqa: BLE001 - show readable errors in the page
             return {"error": str(exc)}
 

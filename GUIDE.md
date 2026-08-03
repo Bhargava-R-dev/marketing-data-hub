@@ -160,27 +160,32 @@ You'll see five numbered sections on the page. Go through them top to bottom.
 
 ### Step 7 — Section 1: Connect Google
 
-1. Leave the "Login name" box as **`default`**.
-2. Click **"Connect Google account."**
-3. A **Google sign-in tab** opens. Sign in with the Google account that can see
+1. Click **"+ Connect a Google account."** (No name to type — the tool figures
+   out which account it is automatically.)
+2. A **Google sign-in tab** opens. Sign in with the Google account that can see
    your analytics.
-4. Google may show a screen saying the app **"isn't verified."** This is normal
+3. Google may show a screen saying the app **"isn't verified."** This is normal
    for an internal tool — click **"Advanced"** and then **"Go to … (unsafe)"**
    to continue. (It's your admin's app; it's safe.)
-5. Tick the boxes to **allow** access when Google asks, and finish.
-6. Back on the wizard page, you'll see **"connected ✓"**.
+4. Tick the boxes to **allow** access when Google asks, and finish.
+5. Back on the wizard page, you'll see **your email address** appear under
+   "Connected" — confirming which account just connected.
 
-> **Have analytics under a second Google account too?** You can connect it as
-> well: type a different login name (like `personal`) and click Connect again.
-> The tool keeps them side by side.
+> **Have analytics under a second Google account too?** Click **"+ Connect a
+> Google account"** again and sign in with the other one (choose **"Use
+> another account"** if Google offers to reuse the one you're already signed
+> into). Both show up by their real email, side by side, and Section 2 lets
+> you switch between them.
 
 ### Step 8 — Section 2: Choose what to sync
 
-1. Click **"Load accounts."** After ~10 seconds, a checklist appears with every
-   Google Analytics property and Search Console site your login can see.
-2. **Tick the ones you want** to track. (Accounts already added show a ✓ and are
-   greyed out.)
-3. Click **"Add selected."** You'll see a confirmation, and the "Currently
+1. On the left, pick **GA4** or **Search Console** — whichever you want to add.
+2. Along the top, pick **which connected account** (by email) it belongs to.
+   A checklist loads after ~10 seconds, with every property/site that account
+   can see, grouped and searchable if you have a lot.
+3. **Tick the ones you want** to track. (Accounts already added show a ✓ and are
+   greyed out.) Use the search box to jump straight to a name if the list is long.
+4. Click **"Add selected."** You'll see a confirmation, and the "Currently
    syncing" line at the bottom updates.
 
 That's the core of it — GA4 and Search Console are now set up.
@@ -289,6 +294,19 @@ hub sync all
 
 Run `hub setup` again any time to add more properties, sites, or ad accounts —
 it remembers what you already have.
+
+### Checking what data you have
+
+Run:
+
+```
+hub dashboard
+```
+
+This opens a page showing every brand currently synced — grouped by GA4 /
+Search Console, with how much history each has and when it last synced. Handy
+for a quick "what can I actually ask about?" check, or for confirming a sync
+finished. Works anytime, independent of the setup wizard.
 
 ---
 

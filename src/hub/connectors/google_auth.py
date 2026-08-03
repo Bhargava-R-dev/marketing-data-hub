@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -10,7 +11,10 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/webmasters.readonly",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
     "https://www.googleapis.com/auth/adwords",
+    "https://www.googleapis.com/auth/userinfo.email",
 ]
+
+_LABELS_FILE = "identity_labels.json"
 
 _IDENTITY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -37,6 +41,67 @@ def list_identities(secrets_dir: str | Path) -> list[str]:
     for p in sorted(secrets_dir.glob("google_token_*.json")):
         out.append(p.stem.removeprefix("google_token_"))
     return out
+
+
+def get_identity_labels(secrets_dir: str | Path) -> dict[str, str]:
+    """Map of identity slug -> real Google account email, for display.
+
+    Identities connected before this feature (or that failed to fetch their
+    email) are simply absent — callers show a 'needs re-auth' state for those."""
+    path = Path(secrets_dir) / _LABELS_FILE
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def set_identity_label(secrets_dir: str | Path, identity: str, email: str) -> None:
+    secrets_dir = Path(secrets_dir)
+    labels = get_identity_labels(secrets_dir)
+    labels[identity or "default"] = email
+    (secrets_dir / _LABELS_FILE).write_text(json.dumps(labels, indent=2), encoding="utf-8")
+
+
+def fetch_account_email(creds) -> str | None:
+    """The email of the Google account behind these credentials, or None if
+    it can't be determined (e.g. the token predates the email scope)."""
+    try:
+        from googleapiclient.discovery import build
+
+        service = build("oauth2", "v2", credentials=creds, cache_discovery=False)
+        return service.userinfo().get().execute().get("email")
+    except Exception:  # noqa: BLE001 - missing scope / network issue -> no label yet
+        return None
+
+
+def backfill_identity_labels(secrets_dir: str | Path) -> dict[str, str]:
+    """Opportunistically fill in labels for identities whose token is already
+    valid and already carries the email scope (e.g. label file was lost, or
+    this feature landed after the token was issued) — never opens a browser.
+    Identities still on old, narrower scopes are left alone; the wizard shows
+    those as needing one manual re-auth click."""
+    from google.oauth2.credentials import Credentials
+
+    secrets_dir = Path(secrets_dir)
+    labels = get_identity_labels(secrets_dir)
+    for identity in list_identities(secrets_dir):
+        if identity in labels:
+            continue
+        try:
+            creds = Credentials.from_authorized_user_file(
+                str(token_path_for(secrets_dir, identity)))
+        except (ValueError, OSError):
+            continue
+        email_scope = "https://www.googleapis.com/auth/userinfo.email"
+        if email_scope not in (creds.scopes or []) or not creds.valid:
+            continue
+        email = fetch_account_email(creds)
+        if email:
+            labels[identity] = email
+            set_identity_label(secrets_dir, identity, email)
+    return labels
 
 
 def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
@@ -97,4 +162,7 @@ def login(secrets_dir: str | Path, identity: str | None = None,
     creds = flow.run_local_server(port=0)
     secrets_dir.mkdir(parents=True, exist_ok=True)
     token_path_for(secrets_dir, identity).write_text(creds.to_json(), encoding="utf-8")
+    email = fetch_account_email(creds)
+    if email:
+        set_identity_label(secrets_dir, identity or "default", email)
     return creds

@@ -50,7 +50,61 @@ def test_state_reports_identities(wizard, tmp_path):
     (secrets / "google_token.json").write_text("{}", encoding="utf-8")
     (secrets / "google_token_personal.json").write_text("{}", encoding="utf-8")
     body = client.get("/api/state", headers=headers).json()
-    assert body["identities"] == ["default", "personal"]
+    idents = {i["identity"]: i for i in body["identities"]}
+    assert set(idents) == {"default", "personal"}
+    # invalid/placeholder token content -> no label yet, needs one re-auth click
+    assert all(i["needs_reauth"] and i["label"] is None for i in idents.values())
+
+
+def test_state_shows_real_email_label_when_available(wizard, tmp_path):
+    from hub.connectors.google_auth import set_identity_label
+
+    client, headers, cfg = wizard
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    (secrets / "google_token.json").write_text("{}", encoding="utf-8")
+    set_identity_label(secrets, "default", "seoteam@example.com")
+    body = client.get("/api/state", headers=headers).json()
+    default = next(i for i in body["identities"] if i["identity"] == "default")
+    assert default["label"] == "seoteam@example.com"
+    assert default["needs_reauth"] is False
+
+
+def test_google_connect_auto_assigns_identity_no_name_needed(wizard, monkeypatch, tmp_path):
+    client, headers, cfg = wizard
+    (tmp_path / "secrets").mkdir(exist_ok=True)
+    (tmp_path / "secrets" / "google_client.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("hub.connectors.google_auth.login", lambda *a, **k: None)
+    r = client.post("/api/google/connect", headers=headers, json={})
+    assert r.status_code == 200
+    assert r.json()["identity"] == "default"  # first connection -> 'default'
+
+
+def test_google_connect_second_call_gets_new_slug(wizard, monkeypatch, tmp_path):
+    client, headers, cfg = wizard
+    (tmp_path / "secrets").mkdir(exist_ok=True)
+    (tmp_path / "secrets" / "google_client.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "secrets" / "google_token.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("hub.connectors.google_auth.login", lambda *a, **k: None)
+    r = client.post("/api/google/connect", headers=headers, json={})
+    assert r.json()["identity"] == "account2"  # 'default' already taken
+
+
+def test_accounts_endpoint_filters_by_source(wizard, monkeypatch, tmp_path):
+    client, headers, cfg = wizard
+    (tmp_path / "secrets").mkdir(exist_ok=True)
+    (tmp_path / "secrets" / "google_token.json").write_text("{}", encoding="utf-8")
+    captured = {}
+    monkeypatch.setattr("hub.connectors.google_auth.get_credentials",
+                        lambda sd, scopes=None, identity=None: "creds")
+
+    def fake_discover(creds, source=None):
+        captured["source"] = source
+        return []
+    monkeypatch.setattr("hub.core.accounts.discover_all", fake_discover)
+    r = client.get("/api/accounts", headers=headers, params={"source": "ga4"})
+    assert r.json() == []
+    assert captured["source"] == "ga4"
 
 
 def test_accounts_add_via_wizard(wizard, monkeypatch):
