@@ -205,7 +205,17 @@ def setup(config: str = CONFIG_OPT,
             "db_path: data/hub.duckdb\nsecrets_dir: secrets\n"
             "exports_dir: exports\n\nconnectors: {}\n\nexports: []\n",
             encoding="utf-8")
-        typer.echo(f"[OK] created a fresh {cfg_path}")
+        # loud and unmissable: running 'hub setup' from the wrong folder
+        # silently starting a brand-new, empty hub there is a real footgun,
+        # especially for a non-technical user who won't notice a relative path
+        typer.echo("=" * 60)
+        typer.echo(f"[NEW HUB] No existing config found - starting a fresh one at:")
+        typer.echo(f"          {cfg_path.resolve()}")
+        typer.echo("          If you meant to open your EXISTING hub instead, press")
+        typer.echo("          Ctrl+C now, 'cd' into that folder, and run 'hub setup' "
+                   "again")
+        typer.echo("          (or pass --config <path to your existing config.yaml>).")
+        typer.echo("=" * 60)
     run_setup(config, port=port, open_browser=not no_browser)
 
 

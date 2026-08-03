@@ -54,3 +54,27 @@ def test_backfill_unconfigured_source_fails_cleanly(tmp_path):
                                  "--from", "2024-01-01"])
     assert result.exit_code == 1
     assert "not configured" in result.output
+
+
+def test_setup_warns_loudly_when_creating_a_new_hub(tmp_path, monkeypatch):
+    """A missing config.yaml means 'hub setup' scaffolds a fresh project - this
+    must be impossible to miss, since running it from the wrong directory
+    silently starting an empty second hub is exactly what happened in
+    practice (a stray config.yaml appeared in a home directory)."""
+    monkeypatch.setattr("hub.setup_wizard.run_setup", lambda *a, **k: None)
+    cfg_path = tmp_path / "config.yaml"
+    assert not cfg_path.exists()
+    result = runner.invoke(app, ["setup", "--config", str(cfg_path), "--no-browser"])
+    assert result.exit_code == 0
+    assert "NEW HUB" in result.output
+    assert str(cfg_path.resolve()) in result.output
+    assert "Ctrl+C" in result.output
+    assert cfg_path.exists()
+
+
+def test_setup_stays_quiet_when_config_already_exists(tmp_path, monkeypatch):
+    monkeypatch.setattr("hub.setup_wizard.run_setup", lambda *a, **k: None)
+    cfg_path = write_config(tmp_path)
+    result = runner.invoke(app, ["setup", "--config", str(cfg_path), "--no-browser"])
+    assert result.exit_code == 0
+    assert "NEW HUB" not in result.output
