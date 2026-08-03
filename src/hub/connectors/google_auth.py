@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
 from hub.connectors.base import AuthError
+
+# Google always adds 'openid' to the granted scopes when 'userinfo.email' is
+# requested. oauthlib treats any granted-vs-requested scope difference as a
+# fatal error unless this is set. The library's own run_local_server sets it
+# internally; since we run the token exchange ourselves, we set it here too.
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/analytics.readonly",

@@ -259,3 +259,12 @@ def test_login_timeout_raises_actionable_autherror_not_hanging(tmp_path, monkeyp
         ga.login(tmp_path, identity="personal", open_browser=False)
     assert "personal" in str(exc.value)
     assert "hub login personal" in exc.value.hint
+
+
+def test_oauthlib_scope_relaxation_is_enabled_on_import():
+    """Google adds 'openid' to granted scopes with userinfo.email; without
+    this relaxation, our own fetch_token() raises 'Scope has changed' and no
+    token is saved (exactly the failure seen in the field)."""
+    import os
+    import hub.connectors.google_auth  # noqa: F401  (import applies the setdefault)
+    assert os.environ.get("OAUTHLIB_RELAX_TOKEN_SCOPE") == "1"
