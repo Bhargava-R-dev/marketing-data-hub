@@ -107,25 +107,106 @@ def test_fetch_account_email_missing_scope_returns_none(monkeypatch):
     assert fetch_account_email(object()) is None
 
 
-def test_login_fetches_and_saves_label(tmp_path, monkeypatch):
+class FakeFlow:
+    """Stand-in for InstalledAppFlow: captures redirect_uri, hands back an
+    auth URL, and 'exchanges' whatever callback path login() feeds fetch_token."""
+    def __init__(self):
+        self.redirect_uri = None
+        self.credentials = _FakeCreds()
+        self.fetched_with = None
+
+    def authorization_url(self, **kwargs):
+        self.auth_kwargs = kwargs
+        return ("https://accounts.google.com/o/oauth2/auth?fake=1", "state")
+
+    def fetch_token(self, authorization_response=None):
+        self.fetched_with = authorization_response
+
+
+class _FakeCreds:
+    def to_json(self):
+        return "{}"
+
+
+def _patch_login(monkeypatch, tmp_path, callback="/?code=abc123",
+                 email="new@example.com"):
+    """Wire login() up with a fake flow + a stubbed callback wait, so we can
+    exercise everything except the real browser/localhost round-trip."""
     from hub.connectors import google_auth as ga
 
     (tmp_path / "google_client.json").write_text("{}", encoding="utf-8")
-
-    class FakeCreds:
-        def to_json(self):
-            return "{}"
-
-    class FakeFlow:
-        def run_local_server(self, port, timeout_seconds=None):
-            return FakeCreds()
-
+    flow = FakeFlow()
     monkeypatch.setattr(
         "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
-        lambda *a, **k: FakeFlow())
-    monkeypatch.setattr(ga, "fetch_account_email", lambda creds: "new@example.com")
-    ga.login(tmp_path, identity="work")
+        lambda *a, **k: flow)
+    monkeypatch.setattr(ga, "fetch_account_email", lambda creds: email)
+    captured = {}
+
+    def fake_wait(server, timeout_seconds):
+        captured["timeout"] = timeout_seconds
+        try:
+            server.server_close()
+        except Exception:
+            pass
+        if isinstance(callback, Exception):
+            raise callback
+        return callback
+
+    monkeypatch.setattr(ga, "_wait_for_oauth_code", fake_wait)
+    return flow, captured
+
+
+def test_is_oauth_callback_discriminates_real_from_junk():
+    from hub.connectors.google_auth import _is_oauth_callback
+    assert _is_oauth_callback("/?code=abc&scope=x") is True
+    assert _is_oauth_callback("/?error=access_denied") is True
+    assert _is_oauth_callback("/favicon.ico") is False   # the request that broke it
+    assert _is_oauth_callback("/") is False
+    assert _is_oauth_callback("/?state=only") is False
+
+
+def test_login_ignores_junk_request_then_captures_real_callback(tmp_path):
+    """Integration: prove a favicon hit before the real redirect no longer
+    steals the callback (the actual production bug)."""
+    import threading
+    import time
+    import urllib.request
+
+    from hub.connectors.google_auth import (_build_callback_server,
+                                            _wait_for_oauth_code)
+
+    server = _build_callback_server()
+    port = server.server_port
+
+    def client_traffic():
+        time.sleep(0.2)
+        try:  # spurious request first (this used to win and lose the code)
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/favicon.ico", timeout=2)
+        except Exception:
+            pass
+        time.sleep(0.2)
+        try:  # then the real OAuth redirect
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/?code=REALCODE&scope=x", timeout=2)
+        except Exception:
+            pass
+
+    threading.Thread(target=client_traffic, daemon=True).start()
+    path = _wait_for_oauth_code(server, timeout_seconds=10)
+    server.server_close()
+    assert "code=REALCODE" in path
+
+
+def test_login_fetches_and_saves_label(tmp_path, monkeypatch):
+    from hub.connectors import google_auth as ga
+
+    flow, _ = _patch_login(monkeypatch, tmp_path)
+    ga.login(tmp_path, identity="work", open_browser=False)
     assert get_identity_labels(tmp_path) == {"work": "new@example.com"}
+    # login must have fed the captured callback path into the token exchange
+    assert flow.fetched_with is not None and "code=abc123" in flow.fetched_with
+    # and it requested offline+consent so a refresh_token is always returned
+    assert flow.auth_kwargs.get("access_type") == "offline"
+    assert flow.auth_kwargs.get("prompt") == "consent"
 
 
 def test_backfill_skips_already_labelled(tmp_path):
@@ -160,43 +241,21 @@ def test_backfill_leaves_underscoped_token_unlabelled(tmp_path):
 
 # ---- unattended-sync safety: bounded login timeout, not an infinite hang --
 
-def test_login_passes_bounded_timeout_to_run_local_server(tmp_path, monkeypatch):
+def test_login_passes_bounded_timeout_to_wait(tmp_path, monkeypatch):
     from hub.connectors import google_auth as ga
 
-    (tmp_path / "google_client.json").write_text("{}", encoding="utf-8")
-    captured = {}
-
-    class FakeCreds:
-        def to_json(self):
-            return "{}"
-
-    class FakeFlow:
-        def run_local_server(self, port, timeout_seconds=None):
-            captured["timeout_seconds"] = timeout_seconds
-            return FakeCreds()
-
-    monkeypatch.setattr(
-        "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
-        lambda *a, **k: FakeFlow())
-    monkeypatch.setattr(ga, "fetch_account_email", lambda creds: None)
-    ga.login(tmp_path, identity="work")
-    assert captured["timeout_seconds"] == ga._LOGIN_TIMEOUT_SECONDS
-    assert captured["timeout_seconds"] is not None  # must be bounded, not infinite
+    _, captured = _patch_login(monkeypatch, tmp_path, email=None)
+    ga.login(tmp_path, identity="work", open_browser=False)
+    assert captured["timeout"] == ga._LOGIN_TIMEOUT_SECONDS
+    assert captured["timeout"] is not None  # bounded, not an infinite hang
 
 
 def test_login_timeout_raises_actionable_autherror_not_hanging(tmp_path, monkeypatch):
     from hub.connectors import google_auth as ga
 
-    (tmp_path / "google_client.json").write_text("{}", encoding="utf-8")
-
-    class TimesOutFlow:
-        def run_local_server(self, port, timeout_seconds=None):
-            raise TimeoutError("no response received")  # stand-in for WSGITimeoutError
-
-    monkeypatch.setattr(
-        "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
-        lambda *a, **k: TimesOutFlow())
+    _patch_login(monkeypatch, tmp_path,
+                 callback=TimeoutError("no OAuth callback within 300s"))
     with pytest.raises(AuthError) as exc:
-        ga.login(tmp_path, identity="personal")
+        ga.login(tmp_path, identity="personal", open_browser=False)
     assert "personal" in str(exc.value)
     assert "hub login personal" in exc.value.hint

@@ -155,14 +155,70 @@ def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
     return login(secrets_dir, identity=identity, scopes=scopes)
 
 
+def _is_oauth_callback(path: str) -> bool:
+    """True only for the real OAuth redirect (carries ?code= or ?error=).
+    Browsers fire spurious requests to the loopback callback first - favicon,
+    connectivity probes, preconnects - which must be ignored, or they get
+    mistaken for the callback and the real auth code is lost."""
+    import urllib.parse
+
+    params = urllib.parse.parse_qs(urllib.parse.urlparse(path).query)
+    return "code" in params or "error" in params
+
+
+def _wait_for_oauth_code(server, timeout_seconds: int) -> str:
+    """Serve the loopback callback, ignoring junk requests, until the real
+    OAuth redirect arrives or the deadline passes. Returns the request path
+    (with the ?code=...). Robust replacement for the library's single-shot
+    handle_request(), which takes whatever request lands first."""
+    import time
+
+    server.timeout = 1  # poll interval so we can re-check the deadline
+    deadline = time.monotonic() + timeout_seconds
+    while server.captured_path is None:
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"no OAuth callback within {timeout_seconds}s")
+        server.handle_request()  # returns on a handled request OR on timeout
+    return server.captured_path
+
+
+def _build_callback_server():
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - stdlib naming
+            if _is_oauth_callback(self.path):
+                self.server.captured_path = self.path
+                body = (b"Sign-in complete. You can close this tab and return "
+                        b"to the terminal.")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:  # spurious (favicon / probe) - acknowledge, keep waiting
+                self.send_response(204)
+                self.end_headers()
+
+        def log_message(self, *args):  # silence per-request stderr noise
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    server.captured_path = None
+    return server
+
+
 def login(secrets_dir: str | Path, identity: str | None = None,
-          scopes: list[str] | None = None):
+          scopes: list[str] | None = None, open_browser: bool = True):
     """Run the interactive browser consent flow for one identity and save its
     token. Sign in with WHICHEVER Google account should own this identity.
 
-    Bounded by _LOGIN_TIMEOUT_SECONDS: if nobody completes sign-in in time
-    (e.g. this got triggered by an unattended scheduled sync instead of an
-    interactive session), raises AuthError instead of blocking forever."""
+    Uses our own loopback callback server (not the library's single-shot
+    handler, which loses the auth code to a browser's stray first request)
+    and is bounded by _LOGIN_TIMEOUT_SECONDS so an unattended run fails fast
+    instead of hanging for hours."""
+    import webbrowser
+
     from google_auth_oauthlib.flow import InstalledAppFlow
 
     secrets_dir = Path(secrets_dir)
@@ -172,10 +228,20 @@ def login(secrets_dir: str | Path, identity: str | None = None,
         raise AuthError(
             "No Google OAuth client found.",
             hint=f"Save your OAuth client JSON as {client_path} first.")
+
     flow = InstalledAppFlow.from_client_secrets_file(str(client_path), scopes)
+    server = _build_callback_server()
+    flow.redirect_uri = f"http://127.0.0.1:{server.server_port}/"
+    # prompt=consent + offline guarantees a refresh_token even when re-consenting
+    # an already-authorized account (otherwise Google may omit it)
+    auth_url, _ = flow.authorization_url(access_type="offline", prompt="consent")
+    if open_browser:
+        webbrowser.open(auth_url, new=1)
+    print(f"If your browser didn't open, visit this URL to authorize:\n{auth_url}")
+
     try:
-        creds = flow.run_local_server(port=0, timeout_seconds=_LOGIN_TIMEOUT_SECONDS)
-    except Exception as exc:  # noqa: BLE001 - WSGITimeoutError isn't guaranteed importable
+        callback_path = _wait_for_oauth_code(server, _LOGIN_TIMEOUT_SECONDS)
+    except TimeoutError as exc:
         raise AuthError(
             f"Google sign-in for identity {identity or 'default'!r} was not "
             f"completed within {_LOGIN_TIMEOUT_SECONDS}s.",
@@ -183,6 +249,13 @@ def login(secrets_dir: str | Path, identity: str | None = None,
                  f"re-consent - run 'hub login {identity or 'default'}' "
                  "interactively first. If you were signing in, just try again."
         ) from exc
+    finally:
+        server.server_close()
+
+    # oauthlib requires https in the response URL even for loopback
+    flow.fetch_token(authorization_response=f"https://127.0.0.1:{server.server_port}"
+                                            f"{callback_path}")
+    creds = flow.credentials
     secrets_dir.mkdir(parents=True, exist_ok=True)
     token_path_for(secrets_dir, identity).write_text(creds.to_json(), encoding="utf-8")
     email = fetch_account_email(creds)
