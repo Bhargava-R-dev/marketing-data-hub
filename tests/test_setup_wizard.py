@@ -172,3 +172,48 @@ def test_set_connector_options_merges_and_preserves(tmp_path):
     loaded = load_config(p)
     assert loaded.connectors["meta_ads"].options["access_token"] == "old"
     assert loaded.connectors["meta_ads"].options["ad_account_ids"] == ["act_9"]
+
+
+# ---- login failures are surfaced, not silently swallowed -----------------
+
+def test_state_reports_login_error(wizard, monkeypatch, tmp_path):
+    import time
+
+    client, headers, cfg = wizard
+    (tmp_path / "secrets").mkdir(exist_ok=True)
+    (tmp_path / "secrets" / "google_client.json").write_text("{}", encoding="utf-8")
+
+    def boom(*a, **k):
+        raise Exception("Google sign-in for identity 'default' was not completed within 300s.")
+    monkeypatch.setattr("hub.connectors.google_auth.login", boom)
+
+    r = client.post("/api/google/connect", headers=headers, json={})
+    assert r.json()["identity"] == "default"
+    for _ in range(50):
+        body = client.get("/api/state", headers=headers).json()
+        if body["login_errors"].get("default"):
+            break
+        time.sleep(0.05)
+    assert "not completed within 300s" in body["login_errors"]["default"]
+
+
+def test_retrying_connect_clears_previous_error(wizard, monkeypatch, tmp_path):
+    import time
+
+    client, headers, cfg = wizard
+    (tmp_path / "secrets").mkdir(exist_ok=True)
+    (tmp_path / "secrets" / "google_client.json").write_text("{}", encoding="utf-8")
+
+    def boom(*a, **k):
+        raise Exception("boom")
+    monkeypatch.setattr("hub.connectors.google_auth.login", boom)
+    client.post("/api/google/connect", headers=headers, json={})
+    for _ in range(50):
+        if client.get("/api/state", headers=headers).json()["login_errors"].get("default"):
+            break
+        time.sleep(0.05)
+
+    monkeypatch.setattr("hub.connectors.google_auth.login", lambda *a, **k: None)
+    client.post("/api/google/connect", headers=headers, json={"identity": "default"})
+    body = client.get("/api/state", headers=headers).json()
+    assert "default" not in body["login_errors"]

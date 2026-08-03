@@ -20,8 +20,11 @@ _LABELS_FILE = "identity_labels.json"
 # the process for hours until something force-kills it mid-blocking-socket-
 # call, which corrupts CPython's interpreter state (a "Fatal Python error",
 # not a catchable exception). Bounding it makes that same situation fail
-# cleanly and fast instead.
-_LOGIN_TIMEOUT_SECONDS = 120
+# cleanly and fast instead. Generous enough for a real person to read an
+# unfamiliar multi-scope consent screen and pick an account (120s proved too
+# tight in practice), while still far short of the "hours" that caused the
+# original crash.
+_LOGIN_TIMEOUT_SECONDS = 300
 
 _IDENTITY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 

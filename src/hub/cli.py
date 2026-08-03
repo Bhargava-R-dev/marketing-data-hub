@@ -229,11 +229,13 @@ def login(name: str = typer.Argument(
     google_token.json; any other name becomes google_token_<name>.json.
     Properties/sites are assigned to identities via 'hub accounts --identity
     <name> --add' (or options.identities in config.yaml)."""
-    from hub.connectors.google_auth import list_identities
+    from hub.connectors.google_auth import _LOGIN_TIMEOUT_SECONDS, list_identities
     from hub.connectors.google_auth import login as google_login
 
     cfg = _load(config)
     typer.echo(f"Opening browser - sign in with the Google account for identity {name!r}...")
+    typer.echo(f"(you have {_LOGIN_TIMEOUT_SECONDS // 60} minutes to finish in the browser "
+              "before this times out - just re-run the command if it does)")
     google_login(cfg.secrets_dir, identity=name)
     typer.echo(f"[OK] saved. Identities now available: {list_identities(cfg.secrets_dir)}")
     typer.echo(f"Next: hub accounts --identity {name} --add")

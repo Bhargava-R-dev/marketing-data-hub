@@ -205,7 +205,7 @@ function selectIdentity(identity) {
 }
 
 async function connectGoogle(identity) {
-  document.getElementById("connectMsg").textContent = "opening Google sign-in… complete it in the new tab";
+  document.getElementById("connectMsg").textContent = "opening Google sign-in… complete it in the new tab (you have a few minutes)";
   const r = await api("/api/google/connect", {method: "POST",
       body: JSON.stringify(identity ? {identity} : {})});
   if (r.error) { document.getElementById("connectMsg").innerHTML = `<span class="err">${esc(r.error)}</span>`; return; }
@@ -217,6 +217,12 @@ async function connectGoogle(identity) {
       clearInterval(poll);
       document.getElementById("connectMsg").innerHTML = `<span class="ok">connected as ${esc(found.label)} ✓</span>`;
       refreshState();
+      return;
+    }
+    if (s.login_errors && s.login_errors[waitFor]) {
+      clearInterval(poll);
+      document.getElementById("connectMsg").innerHTML =
+        `<span class="err">${esc(s.login_errors[waitFor])}</span> - click "+ Connect a Google account" to try again`;
     }
   }, 2000);
 }

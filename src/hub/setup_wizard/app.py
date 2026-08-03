@@ -24,6 +24,7 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
     app.include_router(dashboard_router(config_path))  # same-process "Open dashboard"
     run_token = secrets.token_hex(16)
     login_threads: dict[str, threading.Thread] = {}
+    login_errors: dict[str, str] = {}
     state = {"shutdown": False}
 
     def cfg():
@@ -77,6 +78,7 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
             busy = True
         return {"identities": identities,
                 "logins_pending": [n for n, t in login_threads.items() if t.is_alive()],
+                "login_errors": dict(login_errors),
                 "connectors": connectors, "coverage": coverage, "db_busy": busy,
                 "config_path": str(config_path)}
 
@@ -109,12 +111,14 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
             return {"error": f"Google sign-in file missing: put google_client.json "
                              f"in {c.secrets_dir}"}
 
+        login_errors.pop(identity, None)  # clear any previous failure on retry
+
         def run_login():
             from hub.connectors.google_auth import login
             try:
                 login(c.secrets_dir, identity=identity)
-            except Exception:  # noqa: BLE001 - surfaced via logins_pending ending
-                pass
+            except Exception as exc:  # noqa: BLE001 - surfaced via /api/state, not swallowed
+                login_errors[identity] = str(exc)
 
         t = threading.Thread(target=run_login, daemon=True)
         t.start()
