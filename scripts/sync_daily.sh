@@ -9,6 +9,9 @@
 set -euo pipefail
 HUB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
+# Unattended: an identity needing re-consent must fail fast in the log,
+# never try to open a real browser window during a scheduled/background run.
+export HUB_UNATTENDED=1
 mkdir -p "$HUB_DIR/logs"
 {
   echo "[$(date)] sync starting"

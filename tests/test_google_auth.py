@@ -268,3 +268,37 @@ def test_oauthlib_scope_relaxation_is_enabled_on_import():
     import os
     import hub.connectors.google_auth  # noqa: F401  (import applies the setdefault)
     assert os.environ.get("OAUTHLIB_RELAX_TOKEN_SCOPE") == "1"
+
+
+# ---- unattended scheduled runs never pop a visible browser window --------
+
+def test_login_refuses_immediately_when_unattended(tmp_path, monkeypatch):
+    """The daily scheduled sync sets HUB_UNATTENDED - an identity needing
+    re-consent must fail with a clean AuthError, not open a real browser
+    window every day (the exact symptom reported in the field)."""
+    from hub.connectors import google_auth as ga
+
+    monkeypatch.setenv("HUB_UNATTENDED", "1")
+    (tmp_path / "google_client.json").write_text("{}", encoding="utf-8")
+
+    def must_not_be_called(*a, **k):
+        raise AssertionError("must not touch the OAuth flow when unattended")
+    monkeypatch.setattr(
+        "google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file",
+        must_not_be_called)
+
+    with pytest.raises(AuthError) as exc:
+        ga.login(tmp_path, identity="personal")
+    assert "personal" in str(exc.value)
+    assert "unattended" in str(exc.value).lower()
+    assert "hub login personal" in exc.value.hint
+
+
+def test_login_proceeds_normally_when_not_unattended(tmp_path, monkeypatch):
+    """Sanity check: interactive use (no HUB_UNATTENDED) is unaffected."""
+    from hub.connectors import google_auth as ga
+
+    monkeypatch.delenv("HUB_UNATTENDED", raising=False)
+    flow, _ = _patch_login(monkeypatch, tmp_path)
+    ga.login(tmp_path, identity="work", open_browser=False)
+    assert flow.fetched_with is not None

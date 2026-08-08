@@ -223,7 +223,19 @@ def login(secrets_dir: str | Path, identity: str | None = None,
     Uses our own loopback callback server (not the library's single-shot
     handler, which loses the auth code to a browser's stray first request)
     and is bounded by _LOGIN_TIMEOUT_SECONDS so an unattended run fails fast
-    instead of hanging for hours."""
+    instead of hanging for hours.
+
+    Refuses outright (no browser, no server, immediate AuthError) when
+    HUB_UNATTENDED is set - the scheduled sync scripts set this, so a token
+    needing re-consent no longer pops a real, visible browser window during
+    an unattended run every single day; it just logs a clean [FAIL]."""
+    if os.environ.get("HUB_UNATTENDED"):
+        raise AuthError(
+            f"Identity {identity or 'default'!r} needs re-consent, but this "
+            "is an unattended run - refusing to open an interactive browser.",
+            hint=f"Run 'hub login {identity or 'default'}' interactively "
+                 "(not from the scheduled task) to fix this once.")
+
     import webbrowser
 
     from google_auth_oauthlib.flow import InstalledAppFlow

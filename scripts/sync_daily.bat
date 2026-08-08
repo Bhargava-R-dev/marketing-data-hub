@@ -9,6 +9,9 @@ setlocal
 pushd "%~dp0.."
 set "HUB_DIR=%CD%"
 if not defined PYTHON set "PYTHON=python"
+rem Unattended: an identity needing re-consent must fail fast in the log,
+rem never pop a real browser window during a scheduled/background run.
+set "HUB_UNATTENDED=1"
 if not exist "%HUB_DIR%\logs" mkdir "%HUB_DIR%\logs"
 echo [%date% %time%] sync starting >> "%HUB_DIR%\logs\sync.log"
 "%PYTHON%" -m hub.cli sync all --config "%HUB_DIR%\config.yaml" >> "%HUB_DIR%\logs\sync.log" 2>&1
