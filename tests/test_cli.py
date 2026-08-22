@@ -200,3 +200,57 @@ def test_backup_default_location_is_alongside_the_db(tmp_path):
     assert result.exit_code == 0
     assert (db_path.parent / "backups").exists()
     assert list((db_path.parent / "backups").glob("*.duckdb"))
+
+
+# ---- hub validate: catch a breakdown report over-counting against core --
+
+
+def test_validate_reports_no_data_yet(tmp_path):
+    cfg = write_config(tmp_path)
+    result = runner.invoke(app, ["validate", "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert "nothing to validate" in result.output
+
+
+def test_validate_passes_clean_data(tmp_path):
+    from datetime import date
+
+    from hub.core.config import load_config
+    from hub.core.models import UnifiedRow
+    from hub.core.storage import Storage
+
+    cfg = write_config(tmp_path)
+    store = Storage(load_config(cfg).db_path)
+    d = date.today()
+    store.replace_rows("gsc", d, d, [
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="Vetrotech",
+                   clicks=100)])
+    store.close()
+
+    result = runner.invoke(app, ["validate", "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert "[OK] no over-counting found" in result.output
+
+
+def test_validate_fails_on_real_overcount(tmp_path):
+    from datetime import date
+
+    from hub.core.config import load_config
+    from hub.core.models import UnifiedRow
+    from hub.core.storage import Storage
+
+    cfg = write_config(tmp_path)
+    store = Storage(load_config(cfg).db_path)
+    d = date.today()
+    store.replace_rows("gsc", d, d, [
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="Vetrotech",
+                   clicks=100)])
+    store.replace_rows("gsc", d, d, [
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="Vetrotech",
+                   clicks=250)], report="queries")
+    store.close()
+
+    result = runner.invoke(app, ["validate", "--config", str(cfg)])
+    assert result.exit_code == 1
+    assert "[FAIL]" in result.output
+    assert "Vetrotech" in result.output

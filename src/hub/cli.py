@@ -136,6 +136,48 @@ def status(config: str = CONFIG_OPT):
 
 
 @app.command()
+def validate(source: str | None = typer.Argument(None, help="Limit to one source"),
+            config: str = CONFIG_OPT):
+    """Check every account's history for a breakdown report OVER-counting
+    against core - the exact class of bug (GA4's '(other)' rows) that
+    inflated one brand's numbers by 38% for weeks, silently, before anyone
+    noticed. Runs automatically after every sync for that sync's own
+    range; this checks the FULL synced history on demand, for peace of
+    mind or after any change to how a report is parsed.
+
+    Only flags OVER-counting - a breakdown legitimately undercounting core
+    (Google's own anonymisation, unattributed sessions) is expected and
+    never flagged here."""
+    from pathlib import Path as _Path
+
+    from hub.core.reconcile import find_over_counts
+    from hub.core.storage import Storage
+
+    cfg = _load(config)
+    if not _Path(cfg.db_path).exists():
+        typer.echo("[OK] no data synced yet - nothing to validate")
+        return
+    storage = Storage(cfg.db_path, read_only=True)
+    accounts = storage.accounts()
+    lo = min((a["first_date"] for a in accounts if a["first_date"]), default=None)
+    hi = max((a["latest_date"] for a in accounts if a["latest_date"]), default=None)
+    if not lo or not hi:
+        typer.echo("[OK] no data synced yet - nothing to validate")
+        storage.close()
+        return
+    findings = find_over_counts(storage, lo, hi, source=source)
+    for f in findings:
+        typer.echo(f"[FAIL] {f['account_name']:24} {f['source']}/{f['report']} is "
+                  f"{f['overcount_pct']}% OVER core ({f['report_total']} vs "
+                  f"{f['core_total']} {f['metric']})")
+    if not findings:
+        typer.echo("[OK] no over-counting found" + (f" for {source}" if source else ""))
+    storage.close()
+    if findings:
+        raise typer.Exit(1)
+
+
+@app.command()
 def gaps(source: str | None = typer.Argument(None, help="Limit to one source"),
          config: str = CONFIG_OPT):
     """Find missing days per ACCOUNT across its whole synced history.

@@ -372,10 +372,14 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
           way, branded + non-branded = the exact core total. Expect a few %
           difference vs numbers exported from the GSC web UI (UI and API serve
           slightly different datasets).
-        - top pages in search -> source="gsc", report="pages"
+        - top pages in search -> source="gsc", report="pages" (NOTE: GSC's own
+          page-dimension breakdown runs 2-9.5% OVER core's total - confirmed a
+          genuine Google API characteristic, not a sync bug - use this for
+          ranking pages, never for a topline total)
         Never compare or add numbers across different reports of the same
-        source; granularities differ. GSC breakdown reports undercount totals
-        slightly (Google anonymises rare queries) — use core for toplines.
+        source; granularities differ. GSC's "queries" report undercounts
+        totals slightly (Google anonymises rare queries); "pages" overcounts
+        instead (see above) — use core for exact toplines either way.
 
         landing_pages vs pages ARE NOT THE SAME SCOPE and their numbers will
         never reconcile: landing_pages attributes a whole SESSION to wherever

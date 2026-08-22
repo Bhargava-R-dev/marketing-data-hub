@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from hub.connectors.base import AuthError, BaseConnector
 from hub.core.normalizer import normalize
+from hub.core.reconcile import find_over_counts
 from hub.core.storage import Storage
 
 
@@ -31,6 +32,22 @@ def run_sync(storage: Storage, connector: BaseConnector,
                 total += storage.replace_rows(connector.id, date_from, date_to,
                                               rows, report=report)
             storage.finish_sync(run_id, total, "success")
+            # automatic reconciliation: catch a breakdown report silently
+            # OVER-counting against core for THIS run's own range - exactly
+            # the class of bug (GA4's '(other)' rows) that inflated one
+            # brand's numbers by 38% for weeks before anyone noticed. Never
+            # fails the sync itself - a bad number here is a data-quality
+            # signal, not a reason to discard data that did load.
+            try:
+                for finding in find_over_counts(storage, date_from, date_to,
+                                                source=connector.id):
+                    print(f"[WARN] reconciliation: {finding['account_name']} "
+                         f"({finding['source']}/{finding['report']}) is "
+                         f"{finding['overcount_pct']}% OVER core's total "
+                         f"({finding['report_total']} vs {finding['core_total']} "
+                         f"{finding['metric']}) - run 'hub validate' for detail")
+            except Exception:  # noqa: BLE001 - the check itself must never break a sync
+                pass
             return total
         except AuthError as exc:
             # auth problems don't heal on retry, and retrying can re-open
