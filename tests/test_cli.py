@@ -78,3 +78,68 @@ def test_setup_stays_quiet_when_config_already_exists(tmp_path, monkeypatch):
     result = runner.invoke(app, ["setup", "--config", str(cfg_path), "--no-browser"])
     assert result.exit_code == 0
     assert "NEW HUB" not in result.output
+
+
+# ---- hub gaps: per-account holes a source-wide date range can't reveal ---
+
+
+def test_gaps_reports_missing_days_per_account(tmp_path):
+    from datetime import date
+
+    from hub.core.models import UnifiedRow
+    from hub.core.storage import Storage
+
+    cfg = write_config(tmp_path)
+    from hub.core.config import load_config
+    store = Storage(load_config(cfg).db_path)
+    store.replace_rows("gsc", date(2026, 5, 1), date(2026, 5, 3), [
+        UnifiedRow(date=date(2026, 5, 1), source="gsc", account_id="x",
+                   account_name="Vetrotech", clicks=1)])
+    store.replace_rows("gsc", date(2026, 5, 3), date(2026, 5, 3), [
+        UnifiedRow(date=date(2026, 5, 3), source="gsc", account_id="x",
+                   account_name="Vetrotech", clicks=1)])
+    store.close()
+
+    result = runner.invoke(app, ["gaps", "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert "[GAP]" in result.output
+    assert "Vetrotech" in result.output
+    assert "2026-05-02" in result.output
+
+
+def test_gaps_reports_ok_when_nothing_missing(tmp_path):
+    from datetime import date
+
+    from hub.core.models import UnifiedRow
+    from hub.core.storage import Storage
+
+    cfg = write_config(tmp_path)
+    from hub.core.config import load_config
+    store = Storage(load_config(cfg).db_path)
+    d = date(2026, 5, 1)
+    store.replace_rows("gsc", d, d, [
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="Vetrotech",
+                   clicks=1)])
+    store.close()
+
+    result = runner.invoke(app, ["gaps", "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert "[OK] no gaps found" in result.output
+
+
+def test_gaps_filters_to_one_source(tmp_path):
+    from datetime import date
+
+    from hub.core.models import UnifiedRow
+    from hub.core.storage import Storage
+
+    cfg = write_config(tmp_path)
+    from hub.core.config import load_config
+    store = Storage(load_config(cfg).db_path)
+    store.replace_rows("gsc", date(2026, 5, 1), date(2026, 5, 3), [
+        UnifiedRow(date=date(2026, 5, 1), source="gsc", account_id="x",
+                   account_name="Vetrotech", clicks=1)])
+    store.close()
+
+    result = runner.invoke(app, ["gaps", "ga4", "--config", str(cfg)])
+    assert "[OK] no gaps found for ga4" in result.output

@@ -95,6 +95,43 @@ def status(config: str = CONFIG_OPT):
 
 
 @app.command()
+def gaps(source: str | None = typer.Argument(None, help="Limit to one source"),
+         config: str = CONFIG_OPT):
+    """Find missing days per ACCOUNT across its whole synced history.
+
+    A source-wide date range can look completely healthy while one specific
+    brand has a real hole in the middle of it - one account's gap disappears
+    behind another account covering the same dates. This is exactly how a
+    68-day outage went unnoticed for weeks. Checks each account's own
+    first-synced-date through today; report='core' only (the exact-totals
+    report - breakdown reports are expected to undercount slightly by
+    design, see README)."""
+    from hub.core.storage import Storage
+
+    cfg = _load(config)
+    storage = Storage(cfg.db_path, read_only=True)
+    accounts = storage.accounts()
+    if source:
+        accounts = [a for a in accounts if a["source"] == source]
+    any_gaps = False
+    for a in accounts:
+        if not a["first_date"] or not a["latest_date"]:
+            continue
+        result = storage.date_gaps(a["source"], a["first_date"], a["latest_date"],
+                                   account_id=a["account_id"])
+        if result["missing_dates"]:
+            any_gaps = True
+            missing = result["missing_dates"]
+            shown = ", ".join(missing[:5]) + (f", ...+{len(missing)-5} more"
+                                              if len(missing) > 5 else "")
+            typer.echo(f"[GAP] {a['source']:6} {a['account_name']:24} "
+                      f"{len(missing)} day(s) missing: {shown}")
+    if not any_gaps:
+        typer.echo("[OK] no gaps found" + (f" for {source}" if source else ""))
+    storage.close()
+
+
+@app.command()
 def doctor(config: str = CONFIG_OPT):
     """Live-check auth + a 1-day probe for each configured connector."""
     from datetime import date, timedelta

@@ -124,3 +124,22 @@ def test_build_dashboard_includes_per_account_freshness(tmp_path):
     fevicreate = next(a for a in ga4["accounts"] if a["account_name"] == "Fevicreate")
     assert fevicreate["freshness"]["status"] == "stale"
     assert fevicreate["freshness"]["days_behind"] > 0
+
+
+def test_build_dashboard_includes_per_account_gap_days(tmp_path):
+    """A hole in the MIDDLE of an account's range (not just at the end) -
+    freshness alone can't catch this since latest_date still looks recent."""
+    db = tmp_path / "hub.duckdb"
+    store = Storage(str(db))
+    store.replace_rows("gsc", date(2026, 5, 1), date(2026, 5, 1), [
+        UnifiedRow(date=date(2026, 5, 1), source="gsc", account_id="s1",
+                   account_name="Vetrotech", clicks=1)])
+    store.replace_rows("gsc", date(2026, 5, 5), date(2026, 5, 5), [
+        UnifiedRow(date=date(2026, 5, 5), source="gsc", account_id="s1",
+                   account_name="Vetrotech", clicks=1)])
+    store.close()
+    cfg = HubConfig(db_path=str(db), secrets_dir=str(tmp_path / "secrets"),
+                    connectors={"gsc": ConnectorSettings(options={"site_urls": ["s1"]})})
+    data = build_dashboard(cfg)
+    gsc = next(g for g in data["groups"] if g["source"] == "gsc")
+    assert gsc["accounts"][0]["gap_days"] == 3  # May 2,3,4 missing

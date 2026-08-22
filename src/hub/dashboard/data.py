@@ -21,6 +21,16 @@ def build_dashboard(config: HubConfig) -> dict:
     try:
         accounts = storage.accounts()
         last_runs = storage.last_runs()
+        # per-account, not just per-source: the account's OWN first->latest
+        # range can contain a real hole in the middle that a source-wide
+        # view (or even 'first_date -> latest_date' alone) never reveals -
+        # exactly how a 68-day outage sat unnoticed for weeks
+        gap_counts = {}
+        for a in accounts:
+            if a["first_date"] and a["latest_date"]:
+                g = storage.date_gaps(a["source"], a["first_date"], a["latest_date"],
+                                      account_id=a["account_id"])
+                gap_counts[(a["source"], a["account_id"])] = len(g["missing_dates"])
     finally:
         storage.close()
 
@@ -50,6 +60,7 @@ def build_dashboard(config: HubConfig) -> dict:
             # behind (an auth outage, a broken property) must not hide
             # behind a source-wide date range that still looks healthy
             "freshness": interpret_freshness(source, latest),
+            "gap_days": gap_counts.get((source, a["account_id"]), 0),
         })
 
     groups = []

@@ -53,6 +53,11 @@ function freshnessBadge(f) {
   return `<span class="err">&#9888; ${f.days_behind} day(s) behind expected</span>`;
 }
 
+function gapsBadge(n) {
+  if (!n) return '<span class="ok">&check; none</span>';
+  return `<span class="err">&#9888; ${n} day(s) missing</span>`;
+}
+
 function render(data) {
   const el = document.getElementById("content");
   if (data.busy) {
@@ -71,7 +76,7 @@ function render(data) {
       </div>
       ${g.accounts.length ? `
       <table>
-        <tr><th>Brand</th><th>Google login</th><th>Date range</th><th>Rows</th><th>Freshness</th></tr>
+        <tr><th>Brand</th><th>Google login</th><th>Date range</th><th>Rows</th><th>Freshness</th><th>Gaps</th></tr>
         ${g.accounts.map(a => `
           <tr>
             <td>${esc(a.account_name)}</td>
@@ -79,6 +84,7 @@ function render(data) {
             <td>${esc(a.first_date || "—")} &rarr; ${esc(a.latest_date || "—")}</td>
             <td>${fmtNum(a.rows)}</td>
             <td>${freshnessBadge(a.freshness)}</td>
+            <td>${gapsBadge(a.gap_days)}</td>
           </tr>`).join("")}
       </table>` : '<p class="muted">no accounts configured for this source yet</p>'}
     </div>`).join("");
