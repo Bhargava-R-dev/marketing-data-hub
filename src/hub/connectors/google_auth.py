@@ -162,6 +162,7 @@ def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
     token_path = token_path_for(secrets_dir, identity)
     client_path = secrets_dir / "google_client.json"
 
+    diagnostic_hint = None
     if token_path.exists():
         from google.auth.exceptions import RefreshError
 
@@ -177,8 +178,15 @@ def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
                 creds.refresh(Request())
                 token_path.write_text(creds.to_json(), encoding="utf-8")
                 return creds
-        except (ValueError, RefreshError):
+        except (ValueError, RefreshError) as exc:
             creds = None  # corrupt token file or revoked refresh token -> re-consent
+            # surface the SPECIFIC cause instead of a bare "needs re-consent" -
+            # invalid_grant almost always means the OAuth app is stuck in
+            # Testing mode (7-day refresh token expiry), which took real
+            # manual debugging (calling creds.refresh() directly and reading
+            # the raw exception) to work out once already
+            if "invalid_grant" in str(exc):
+                diagnostic_hint = _INVALID_GRANT_HINT
 
     if not client_path.exists():
         raise AuthError(
@@ -188,7 +196,8 @@ def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
                   f"{client_path}. Then run: hub doctor"
                   " If this worked before, delete the token file and re-authorize."))
 
-    return login(secrets_dir, identity=identity, scopes=scopes)
+    return login(secrets_dir, identity=identity, scopes=scopes,
+                _diagnostic_hint=diagnostic_hint)
 
 
 def _is_oauth_callback(path: str) -> bool:
@@ -244,8 +253,21 @@ def _build_callback_server():
     return server
 
 
+_INVALID_GRANT_HINT = (
+    "This traces back to Google's 'invalid_grant: Token has been expired or "
+    "revoked' error. The most common cause: your OAuth app's Google Cloud "
+    "Console consent screen is still in 'Testing' status - Google auto-"
+    "expires refresh tokens issued under Testing after about 7 days, no "
+    "matter how active the account is, so this can recur every ~week until "
+    "fixed. Fix: Google Cloud Console > APIs & Services > OAuth consent "
+    "screen > check Publishing status; if it says 'Testing', click "
+    "'Publish App' to move to Production (no code changes, removes the "
+    "7-day expiry for good).")
+
+
 def login(secrets_dir: str | Path, identity: str | None = None,
-          scopes: list[str] | None = None, open_browser: bool = True):
+          scopes: list[str] | None = None, open_browser: bool = True,
+          _diagnostic_hint: str | None = None):
     """Run the interactive browser consent flow for one identity and save its
     token. Sign in with WHICHEVER Google account should own this identity.
 
@@ -257,13 +279,22 @@ def login(secrets_dir: str | Path, identity: str | None = None,
     Refuses outright (no browser, no server, immediate AuthError) when
     HUB_UNATTENDED is set - the scheduled sync scripts set this, so a token
     needing re-consent no longer pops a real, visible browser window during
-    an unattended run every single day; it just logs a clean [FAIL]."""
+    an unattended run every single day; it just logs a clean [FAIL].
+
+    _diagnostic_hint (internal - set by get_credentials): when the token
+    needed re-consent because of a specific detected failure (e.g. Google's
+    invalid_grant), that root cause is prepended to the error instead of a
+    bare 'needs re-consent' that gives no clue why - this took real manual
+    debugging to work out once already."""
     if os.environ.get("HUB_UNATTENDED"):
+        hint = (f"Run 'hub login {identity or 'default'}' interactively "
+               "(not from the scheduled task) to fix this once.")
+        if _diagnostic_hint:
+            hint = f"{_diagnostic_hint} {hint}"
         raise AuthError(
             f"Identity {identity or 'default'!r} needs re-consent, but this "
             "is an unattended run - refusing to open an interactive browser.",
-            hint=f"Run 'hub login {identity or 'default'}' interactively "
-                 "(not from the scheduled task) to fix this once.")
+            hint=hint)
 
     import webbrowser
 

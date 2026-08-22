@@ -334,3 +334,60 @@ def test_verify_identity_email_mismatch_raises_with_both_emails_named(tmp_path):
     assert "right@example.com" in str(exc.value)
     assert "wrong@example.com" in str(exc.value)
     assert "hub login personal" in exc.value.hint
+
+
+# ---- invalid_grant early diagnosis: name the ~7-day Testing-mode expiry --
+# ---- instead of a bare "needs re-consent" that gave no clue why once ------
+
+
+def test_invalid_grant_refresh_failure_names_the_likely_cause(tmp_path, monkeypatch):
+    """Reproduces the actual incident: a token whose refresh_token Google
+    has expired/revoked (invalid_grant) must surface the Testing-mode
+    7-day-expiry explanation, not a generic re-consent message - working
+    this out took manually calling creds.refresh() and reading the raw
+    exception during a real debugging session."""
+    from google.auth.exceptions import RefreshError
+
+    from hub.connectors import google_auth as ga
+
+    token = {
+        "token": "abc", "refresh_token": "def", "client_id": "x", "client_secret": "y",
+        "token_uri": "https://oauth2.googleapis.com/token", "scopes": GOOGLE_SCOPES,
+        "expiry": "2020-01-01T00:00:00Z",  # already expired -> triggers refresh
+    }
+    (tmp_path / "google_token.json").write_text(json.dumps(token), encoding="utf-8")
+    (tmp_path / "google_client.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("HUB_UNATTENDED", "1")
+
+    def boom_refresh(self, request):
+        raise RefreshError("('invalid_grant: Token has been expired or revoked.', {})")
+    monkeypatch.setattr("google.oauth2.credentials.Credentials.refresh", boom_refresh)
+
+    with pytest.raises(AuthError) as exc:
+        get_credentials(tmp_path)
+    assert "Testing" in exc.value.hint
+    assert "7 days" in exc.value.hint
+    assert "Publish App" in exc.value.hint
+
+
+def test_other_refresh_errors_dont_get_the_invalid_grant_hint(tmp_path, monkeypatch):
+    """A different RefreshError (network blip, etc.) shouldn't be
+    misdiagnosed as the Testing-mode issue."""
+    from google.auth.exceptions import RefreshError
+
+    token = {
+        "token": "abc", "refresh_token": "def", "client_id": "x", "client_secret": "y",
+        "token_uri": "https://oauth2.googleapis.com/token", "scopes": GOOGLE_SCOPES,
+        "expiry": "2020-01-01T00:00:00Z",
+    }
+    (tmp_path / "google_token.json").write_text(json.dumps(token), encoding="utf-8")
+    (tmp_path / "google_client.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("HUB_UNATTENDED", "1")
+
+    def boom_refresh(self, request):
+        raise RefreshError("connection reset by peer")
+    monkeypatch.setattr("google.oauth2.credentials.Credentials.refresh", boom_refresh)
+
+    with pytest.raises(AuthError) as exc:
+        get_credentials(tmp_path)
+    assert "Testing" not in exc.value.hint
