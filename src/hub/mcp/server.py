@@ -35,6 +35,74 @@ def _with_deltas(current: dict, previous: dict, metric_names: list[str]) -> dict
     return out
 
 
+# Rates as first-class output fields, not a manual division the caller has
+# to remember to do every time (the docstring used to just document the
+# formula and leave it there). Each maps to two ADDITIVE components already
+# queryable via fields=[...] in the right report - engagement_rate needs
+# report="channels"/"landing_pages" (wherever engaged_sessions lives),
+# avg_engagement_time needs report="pages"; ctr/conversion_rate work with
+# the default report="core" since both their components are core metrics.
+_DERIVED_RATES = {
+    "engagement_rate": ("engaged_sessions", "sessions"),
+    "ctr": ("clicks", "impressions"),
+    "conversion_rate": ("conversions", "sessions"),
+    "avg_engagement_time": ("engagement_seconds", "pageviews"),
+}
+
+
+def _expand_derived_rates(fields: list[str]) -> tuple[list[str], list[str]]:
+    """Replace each requested rate name with its two underlying additive
+    components (deduped, order-preserving) so storage.query() only ever
+    sees real columns. Returns (expanded_fields, rate_names_requested)."""
+    expanded: list[str] = []
+    seen: set[str] = set()
+    rates: list[str] = []
+    for f in fields:
+        if f in _DERIVED_RATES:
+            rates.append(f)
+            for comp in _DERIVED_RATES[f]:
+                if comp not in seen:
+                    expanded.append(comp)
+                    seen.add(comp)
+        elif f not in seen:
+            expanded.append(f)
+            seen.add(f)
+    return expanded, rates
+
+
+def _inject_rates(rows: list[dict], rates: list[str], originally_requested: set[str]) -> None:
+    """Compute each requested rate onto every row (in place) from its
+    already-fetched components, including _prev/_change_pct when compare
+    mode populated those suffixes. Then drops any component that was only
+    added to satisfy the computation, not asked for by name."""
+    if not rates:
+        return
+
+    def calc(row: dict, num_key: str, den_key: str):
+        n, d = row.get(num_key), row.get(den_key)
+        if n is None or not d:
+            return None
+        return round(float(n) / float(d), 4)
+
+    for row in rows:
+        for rate in rates:
+            num, den = _DERIVED_RATES[rate]
+            row[rate] = calc(row, num, den)
+            if f"{num}_prev" in row or f"{den}_prev" in row:
+                prev_val = calc(row, f"{num}_prev", f"{den}_prev")
+                row[f"{rate}_prev"] = prev_val
+                cur = row[rate]
+                row[f"{rate}_change_pct"] = (
+                    round((cur - prev_val) / prev_val * 100, 1)
+                    if cur is not None and prev_val else None)
+
+    added_only = ({c for r in rates for c in _DERIVED_RATES[r]} - originally_requested)
+    for row in rows:
+        for comp in added_only:
+            for key in (comp, f"{comp}_prev", f"{comp}_change_pct"):
+                row.pop(key, None)
+
+
 def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
     mcp = FastMCP("marketing-data-hub")
 
@@ -80,6 +148,9 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                        brand: str | None = None, report: str = "core",
                        filters: dict | None = None,
                        compare: str | None = None) -> dict:
+        originally_requested = set(fields)
+        fields, rate_names = _expand_derived_rates(fields)
+
         df, dt = resolve_dates(
             date_preset,
             date.fromisoformat(date_from) if date_from else None,
@@ -141,6 +212,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             result["compare"] = compare
             result["compare_date_from"] = pf.isoformat()
             result["compare_date_to"] = pt.isoformat()
+
+        _inject_rates(rows, rate_names, originally_requested)
 
         result.update({
             "date_from": df.isoformat(), "date_to": dt.isoformat(),
@@ -316,9 +389,15 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         confusion before: don't diagnose a data bug from a landing_pages
         number vs a pages number disagreeing - diagnose it from two numbers
         in the SAME report disagreeing.
-        Rates are computed, not stored: engagement rate = engaged_sessions /
-        sessions; ctr = clicks / impressions; avg engagement time =
-        engagement_seconds / pageviews.
+        RATES: request these directly in fields=[...] - no manual division
+        needed, they're computed automatically from the underlying additive
+        metrics (which stay additive in storage; the rate itself is never
+        stored, only computed at query time so it aggregates correctly over
+        any range): "engagement_rate" (needs report="channels" or
+        "landing_pages", wherever engaged_sessions lives), "ctr" (works with
+        the default report="core"), "conversion_rate" (also report="core"),
+        "avg_engagement_time" (needs report="pages"). Works with compare= too
+        - you get rate/rate_prev/rate_change_pct like any other metric.
 
         To answer questions about a specific brand/website (e.g. "Vetrotech traffic
         last week"), pass brand="vetrotech" — it matches account_name

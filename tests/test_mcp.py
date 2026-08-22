@@ -506,3 +506,77 @@ def test_backfill_and_trigger_sync_share_the_same_run_guard(tmp_path, monkeypatc
     second = asyncio.run(mcp._call_trigger_sync(source="gsc"))
     assert first["status"] == "started"
     assert second["status"] == "already_running"
+
+
+# ---- derived rate metrics: engagement_rate/ctr/conversion_rate/avg_time --
+# ---- as first-class fields, not a division the caller does by hand -------
+
+
+def test_query_metrics_computes_ctr_from_core_report(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)  # Vetrotech: clicks=12 impressions=300; Sharekhan: clicks=7 impressions=100
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["ctr"], date_preset="last_7d"))
+    # aggregated: clicks=19, impressions=400 -> ctr = 19/400
+    assert result["rows"][0]["ctr"] == round(19 / 400, 4)
+    # underlying components were only added for computation - not in output
+    assert "clicks" not in result["rows"][0]
+    assert "impressions" not in result["rows"][0]
+
+
+def test_query_metrics_keeps_explicitly_requested_components(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["ctr", "clicks"], date_preset="last_7d"))
+    assert result["rows"][0]["ctr"] == round(19 / 400, 4)
+    assert result["rows"][0]["clicks"] == 19  # explicitly asked for -> kept
+
+
+def test_query_metrics_rate_is_none_when_denominator_is_zero(tmp_path):
+    cfg = make_config(tmp_path)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["ctr"], date_from="2020-01-01", date_to="2020-01-01"))
+    assert result["rows"][0]["ctr"] is None
+
+
+def test_query_metrics_rate_works_with_compare(tmp_path):
+    cfg = make_config(tmp_path)
+    store = Storage(cfg.db_path)
+    store.replace_rows("gsc", date(2026, 5, 1), date(2026, 5, 31), [
+        UnifiedRow(date=date(2026, 5, 10), source="gsc", account_id="x",
+                   account_name="Vetrotech", clicks=10, impressions=100)])
+    store.replace_rows("gsc", date(2026, 6, 1), date(2026, 6, 30), [
+        UnifiedRow(date=date(2026, 6, 10), source="gsc", account_id="x",
+                   account_name="Vetrotech", clicks=20, impressions=100)])
+    store.close()
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["ctr"], date_from="2026-06-01", date_to="2026-06-30",
+        compare="prev_month"))
+    r = result["rows"][0]
+    assert r["ctr"] == 0.2 and r["ctr_prev"] == 0.1
+    assert r["ctr_change_pct"] == 100.0
+
+
+def test_query_metrics_multiple_rates_at_once(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["ctr", "conversion_rate"], date_preset="last_7d"))
+    row = result["rows"][0]
+    assert "ctr" in row and "conversion_rate" in row
+
+
+def test_expand_derived_rates_dedupes_shared_components():
+    from hub.mcp.server import _expand_derived_rates
+    expanded, rates = _expand_derived_rates(["date", "ctr", "conversion_rate"])
+    assert rates == ["ctr", "conversion_rate"]
+    # 'sessions' is conversion_rate's denominator only; clicks/impressions
+    # from ctr, conversions from conversion_rate - no duplicates
+    assert expanded.count("sessions") <= 1
+    assert set(expanded) == {"date", "clicks", "impressions", "conversions", "sessions"}
