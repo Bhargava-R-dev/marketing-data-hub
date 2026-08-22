@@ -303,6 +303,19 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         Never compare or add numbers across different reports of the same
         source; granularities differ. GSC breakdown reports undercount totals
         slightly (Google anonymises rare queries) — use core for toplines.
+
+        landing_pages vs pages ARE NOT THE SAME SCOPE and their numbers will
+        never reconcile: landing_pages attributes a whole SESSION to wherever
+        it entered (one row per session's landing page); pages counts every
+        PAGEVIEW during a session (one row per page actually viewed, any
+        point in the session). A session landing on A then viewing B appears
+        once under A in landing_pages, but under BOTH A and B in pages - so
+        e.g. "sessions on page A" from landing_pages can legitimately exceed
+        "views of page A" from pages, or vice versa, for entirely benign
+        reasons. This produced exactly this apparent-impossible-arithmetic
+        confusion before: don't diagnose a data bug from a landing_pages
+        number vs a pages number disagreeing - diagnose it from two numbers
+        in the SAME report disagreeing.
         Rates are computed, not stored: engagement rate = engaged_sessions /
         sessions; ctr = clicks / impressions; avg engagement time =
         engagement_seconds / pageviews.
