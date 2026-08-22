@@ -506,6 +506,128 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                     "hint": "dimension/metric names must be native GA4 API names; "
                             "see developers.google.com/analytics/devguides/reporting/data/v1/api-schema"}
 
+    def _query_ga4_funnel_impl(steps: list[dict], date_from: str, date_to: str,
+                               property_id: str | None = None,
+                               brand: str | None = None) -> dict:
+        try:
+            from google.analytics.data_v1alpha import AlphaAnalyticsDataClient
+            from google.analytics.data_v1alpha.types import (
+                DateRange, Funnel, FunnelEventFilter, FunnelFilterExpression,
+                FunnelParameterFilter, FunnelParameterFilterExpression,
+                FunnelStep, RunFunnelReportRequest, StringFilter)
+
+            from hub.connectors.base import AuthError
+            from hub.connectors.google_auth import get_credentials, verify_identity_email
+
+            if len(steps) < 2:
+                return {"error": "a funnel needs at least 2 steps"}
+            if len(steps) > 10:
+                return {"error": "GA4 funnels support at most 10 steps"}
+            for s in steps:
+                if not s.get("name") or not s.get("event"):
+                    return {"error": f"each step needs 'name' and 'event': {s!r}"}
+
+            cfg = _cfg()
+            target = _resolve_target(cfg, "ga4", "property_ids", property_id, brand)
+            if isinstance(target, dict):
+                return target
+            identity = _identity_for(cfg, "ga4", target)
+            ga4_opts = cfg.connectors["ga4"].options if "ga4" in cfg.connectors else {}
+            verify_identity_email(cfg.secrets_dir, identity,
+                                  ga4_opts.get("identity_emails", {}).get(target),
+                                  ga4_opts.get("labels", {}).get(target, target))
+            creds = get_credentials(cfg.secrets_dir, identity=identity)
+            client = AlphaAnalyticsDataClient(credentials=creds)
+
+            match_types = {"exact": StringFilter.MatchType.EXACT,
+                           "contains": StringFilter.MatchType.CONTAINS}
+
+            def _build_step(s: dict) -> FunnelStep:
+                param_name = s.get("param_name") or ("page_location" if s.get("page") else None)
+                param_value = s.get("param_value", s.get("page"))
+                if param_name and param_value is not None:
+                    match_type = match_types.get(s.get("match", "contains"),
+                                                 StringFilter.MatchType.CONTAINS)
+                    event_filter = FunnelEventFilter(
+                        event_name=s["event"],
+                        funnel_parameter_filter_expression=FunnelParameterFilterExpression(
+                            funnel_parameter_filter=FunnelParameterFilter(
+                                event_parameter_name=param_name,
+                                string_filter=StringFilter(value=str(param_value),
+                                                           match_type=match_type))))
+                else:
+                    event_filter = FunnelEventFilter(event_name=s["event"])
+                return FunnelStep(name=s["name"],
+                                 filter_expression=FunnelFilterExpression(
+                                     funnel_event_filter=event_filter))
+
+            response = client.run_funnel_report(RunFunnelReportRequest(
+                property=f"properties/{target}",
+                date_ranges=[DateRange(start_date=date_from, end_date=date_to)],
+                funnel=Funnel(steps=[_build_step(s) for s in steps])))
+
+            headers = [h.name for h in response.funnel_table.metric_headers]
+            rows = []
+            for row in response.funnel_table.rows:
+                step_label = row.dimension_values[0].value if row.dimension_values else ""
+                vals = [v.value for v in row.metric_values]
+                # metric_headers can carry extra duplicate entries beyond what
+                # a row actually populates (an observed GA4 API quirk) - pair
+                # only as many header names as there are real values, in order.
+                metrics = dict(zip(headers[:len(vals)], vals))
+                rows.append({
+                    "step": step_label,
+                    "active_users": int(metrics.get("activeUsers", 0) or 0),
+                    "completion_rate": float(metrics.get("funnelStepCompletionRate", 0) or 0),
+                    "abandonments": int(metrics.get("funnelStepAbandonments", 0) or 0),
+                    "abandonment_rate": float(metrics.get("funnelStepAbandonmentRate", 0) or 0),
+                })
+            return {"property_id": target, "steps": rows}
+        except AuthError as exc:
+            return {"error": str(exc), "hint": exc.hint}
+        except Exception as exc:  # noqa: BLE001 - return readable errors to the model
+            return {"error": str(exc),
+                    "hint": "event names are property-specific; use query_ga4_live with "
+                            "dimensions=[\"eventName\"] to discover this property's real "
+                            "event names if a step returns 0 users unexpectedly"}
+
+    # exposed for tests - lets validation/parsing be exercised without live
+    # Google credentials, same pattern as _call_query_metrics above
+    async def _call_query_ga4_funnel(**kwargs) -> dict:
+        return _query_ga4_funnel_impl(**kwargs)
+    mcp._call_query_ga4_funnel = _call_query_ga4_funnel  # type: ignore[attr-defined]
+
+    @mcp.tool()
+    def query_ga4_funnel(steps: list[dict], date_from: str, date_to: str,
+                         property_id: str | None = None, brand: str | None = None) -> dict:
+        """Multi-step funnel analysis for ANY GA4 property: "how many users did
+        A, then B, then C" (e.g. landed on a page, then viewed another page,
+        then converted). Uses GA4's dedicated Funnel Exploration API - a
+        different endpoint from query_ga4_live, because funnel steps can only
+        be expressed as events (+ optional event-parameter filters), NOT as
+        arbitrary dimensions like pagePath directly.
+
+        Pass 2-10 steps, each a dict:
+          {"name": "Landed on pricing", "event": "page_view", "page": "/pricing"}
+          {"name": "Generated lead", "event": "generate_lead"}
+        - "event": required, a real GA4 event name for this property (use
+          query_ga4_live with dimensions=["eventName"] to discover a
+          property's actual event names first if unsure - e.g. this property
+          might use "purchase", or a custom name, or have no such event at all).
+        - "page": optional shorthand for the common "landed on / viewed page X"
+          step - filters event_name="page_view" (or whatever "event" you set)
+          to page_location CONTAINS this value.
+        - For any other event-parameter filter, use "param_name"/"param_value"
+          instead of "page" (param_name defaults to "page_location" when
+          "page" is given), and optional "match": "exact"|"contains"
+          (default "contains").
+
+        Returns each step's active_users, completion_rate (fraction who went
+        on to the NEXT step - always 1.0 on the last step), abandonments, and
+        abandonment_rate. Pass brand= or an explicit property_id. Dates are
+        YYYY-MM-DD."""
+        return _query_ga4_funnel_impl(steps, date_from, date_to, property_id, brand)
+
     @mcp.tool()
     def query_gsc_live(dimensions: list[str], date_from: str, date_to: str,
                        site_url: str | None = None, brand: str | None = None,
