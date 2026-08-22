@@ -80,6 +80,47 @@ def backfill(source: str, config: str = CONFIG_OPT,
 
 
 @app.command()
+def backup(config: str = CONFIG_OPT,
+          out_dir: str | None = typer.Option(
+              None, "--out", help="Backup directory (default: alongside the db, "
+                                  "in a 'backups' subfolder)")):
+    """Copy the database to a timestamped backup file.
+
+    Multi-year backfilled history takes hours to rebuild and lives in one
+    file with zero copies anywhere by default - this is cheap insurance.
+    Refuses if a sync is currently running (proven by a successful
+    read-only open - that fails outright while a writer holds the lock,
+    so it can never copy a database mid-write)."""
+    import shutil
+    from datetime import datetime
+    from pathlib import Path as _Path
+
+    from hub.core.storage import Storage
+
+    cfg = _load(config)
+    db_path = _Path(cfg.db_path)
+    if not db_path.exists():
+        typer.echo(f"[FAIL] no database found at {db_path}")
+        raise typer.Exit(1)
+    try:
+        Storage(str(db_path), read_only=True).close()
+    except Exception:
+        typer.echo("[FAIL] database is busy (a sync is running) - wait and retry")
+        raise typer.Exit(1)
+
+    dest_dir = _Path(out_dir) if out_dir else db_path.parent / "backups"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = dest_dir / f"{db_path.stem}_{stamp}{db_path.suffix}"
+    shutil.copy2(db_path, dest)
+    wal = db_path.with_suffix(db_path.suffix + ".wal")
+    if wal.exists():
+        shutil.copy2(wal, dest.with_suffix(dest.suffix + ".wal"))
+    size_mb = dest.stat().st_size / 1_048_576
+    typer.echo(f"[OK] backed up {db_path} -> {dest} ({size_mb:.1f} MB)")
+
+
+@app.command()
 def status(config: str = CONFIG_OPT):
     """Show every connector's status, row counts, and last sync."""
     from hub.core.status import source_statuses

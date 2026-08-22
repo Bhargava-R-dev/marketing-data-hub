@@ -143,3 +143,60 @@ def test_gaps_filters_to_one_source(tmp_path):
 
     result = runner.invoke(app, ["gaps", "ga4", "--config", str(cfg)])
     assert "[OK] no gaps found for ga4" in result.output
+
+
+# ---- hub backup: cheap insurance for a multi-year, multi-GB database -----
+
+
+def test_backup_copies_db_to_timestamped_file(tmp_path):
+    from hub.core.storage import Storage
+
+    cfg = write_config(tmp_path)
+    from hub.core.config import load_config
+    db_path = Path(load_config(cfg).db_path)
+    Storage(str(db_path)).close()  # create the db file
+
+    result = runner.invoke(app, ["backup", "--config", str(cfg),
+                                "--out", str(tmp_path / "backups")])
+    assert result.exit_code == 0
+    assert "[OK]" in result.output
+    backups = list((tmp_path / "backups").glob("*.duckdb"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == db_path.read_bytes()
+
+
+def test_backup_fails_cleanly_when_db_missing(tmp_path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(f"db_path: {(tmp_path / 'nope.duckdb').as_posix()}\n"
+                  "connectors: {}\n", encoding="utf-8")
+    result = runner.invoke(app, ["backup", "--config", str(cfg)])
+    assert result.exit_code == 1
+    assert "no database found" in result.output
+
+
+def test_backup_refuses_while_a_sync_holds_the_write_lock(tmp_path):
+    from hub.core.storage import Storage
+
+    cfg = write_config(tmp_path)
+    from hub.core.config import load_config
+    store = Storage(load_config(cfg).db_path)  # writer, not closed - holds the lock
+    try:
+        result = runner.invoke(app, ["backup", "--config", str(cfg)])
+        assert result.exit_code == 1
+        assert "busy" in result.output
+    finally:
+        store.close()
+
+
+def test_backup_default_location_is_alongside_the_db(tmp_path):
+    from hub.core.storage import Storage
+
+    cfg = write_config(tmp_path)
+    from hub.core.config import load_config
+    db_path = Path(load_config(cfg).db_path)
+    Storage(str(db_path)).close()
+
+    result = runner.invoke(app, ["backup", "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert (db_path.parent / "backups").exists()
+    assert list((db_path.parent / "backups").glob("*.duckdb"))
