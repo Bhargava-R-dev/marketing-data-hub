@@ -64,6 +64,71 @@ def test_sync_run_lifecycle(store):
     assert runs["ga4"]["rows_written"] == 10
 
 
+# ---- housekeeping: a crashed 'running' row must not sit there forever ----
+
+
+def test_start_sync_clears_a_stale_running_row(store):
+    """A process kill / machine sleep mid-sync leaves 'running' behind
+    forever, since nothing else ever revisits a written sync_runs row -
+    12 of these were found stuck for days and had to be fixed by hand.
+    The next sync for that source must clear it automatically."""
+    from datetime import datetime, timedelta
+
+    old_id = store.start_sync("ga4", date(2026, 6, 1), date(2026, 7, 1))
+    stale_time = datetime.now() - timedelta(hours=1)
+    store.conn.execute("UPDATE sync_runs SET started_at = ? WHERE id = ?",
+                       [stale_time, old_id])
+
+    store.start_sync("ga4", date(2026, 7, 1), date(2026, 8, 1))
+
+    row = store.conn.execute(
+        "SELECT status, error_message FROM sync_runs WHERE id = ?", [old_id]).fetchone()
+    assert row[0] == "error"
+    assert "crashed" in row[1]
+
+
+def test_start_sync_leaves_a_recent_running_row_alone(store):
+    """A row still within the stale threshold might be a real concurrent
+    sync (or this same call's own row) - never touch it."""
+    run_id = store.start_sync("ga4", date(2026, 6, 1), date(2026, 7, 1))
+    store.start_sync("gsc", date(2026, 6, 1), date(2026, 7, 1))  # different source
+
+    row = store.conn.execute(
+        "SELECT status FROM sync_runs WHERE id = ?", [run_id]).fetchone()
+    assert row[0] == "running"
+
+
+def test_start_sync_only_clears_same_source(store):
+    from datetime import datetime, timedelta
+
+    ga4_id = store.start_sync("ga4", date(2026, 6, 1), date(2026, 7, 1))
+    stale_time = datetime.now() - timedelta(hours=1)
+    store.conn.execute("UPDATE sync_runs SET started_at = ? WHERE id = ?",
+                       [stale_time, ga4_id])
+
+    store.start_sync("gsc", date(2026, 6, 1), date(2026, 7, 1))  # a different source
+
+    row = store.conn.execute(
+        "SELECT status FROM sync_runs WHERE id = ?", [ga4_id]).fetchone()
+    assert row[0] == "running"  # untouched - only ga4's own next sync clears it
+
+
+def test_start_sync_never_touches_a_finished_run(store):
+    from datetime import datetime, timedelta
+
+    run_id = store.start_sync("ga4", date(2026, 6, 1), date(2026, 7, 1))
+    store.finish_sync(run_id, rows=5, status="success")
+    old_time = datetime.now() - timedelta(hours=1)
+    store.conn.execute("UPDATE sync_runs SET started_at = ? WHERE id = ?",
+                       [old_time, run_id])
+
+    store.start_sync("ga4", date(2026, 7, 1), date(2026, 8, 1))
+
+    row = store.conn.execute(
+        "SELECT status FROM sync_runs WHERE id = ?", [run_id]).fetchone()
+    assert row[0] == "success"  # only 'running' rows are ever rewritten
+
+
 def test_status_counts(store):
     d = date(2026, 7, 1)
     store.replace_rows("ga4", d, d, rows_for("ga4", d, 5))

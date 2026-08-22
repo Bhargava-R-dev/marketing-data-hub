@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 import duckdb
@@ -14,12 +14,11 @@ from hub.core.config import HubConfig, load_config
 from hub.core.models import CORE_METRICS
 from hub.core.presets import COMPARE_MODES, resolve_dates, shift_range
 from hub.core.status import source_statuses
+from hub.core.storage import STALE_RUNNING as _STALE_RUNNING
 from hub.core.storage import Storage
 
 _LOCK_RETRIES = 3
 _LOCK_WAIT_S = 0.4
-# a 'running' sync_runs row older than this is a crashed sync, not a live one
-_STALE_RUNNING = timedelta(minutes=15)
 
 
 def _with_deltas(current: dict, previous: dict, metric_names: list[str]) -> dict:

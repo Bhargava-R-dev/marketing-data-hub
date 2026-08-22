@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -13,6 +13,12 @@ import duckdb
 from hub.core.models import CORE_DIMENSIONS, CORE_METRICS, UnifiedRow
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# a 'running' sync_runs row older than this crashed rather than finishing -
+# the single source of truth for that threshold (mcp/server.py imports it
+# rather than keeping its own copy, which had silently drifted out of sync
+# with reality: rows like this were found stuck 'running' for DAYS with
+# nothing ever correcting them - a human had to notice and fix it by hand)
+STALE_RUNNING = timedelta(minutes=15)
 
 _METRIC_COLUMNS = {  # bulk-load column spec, in metrics-table order
     "date": "DATE", "source": "VARCHAR", "report": "VARCHAR",
@@ -220,10 +226,24 @@ class Storage:
     # ---- sync log -----------------------------------------------------
     def start_sync(self, source: str, date_from: date, date_to: date) -> int:
         with self._lock:
+            now = datetime.now()
+            # housekeeping: a prior run for this source stuck on 'running'
+            # past the stale threshold crashed (killed process, machine
+            # sleep, a hard kill mid-sync) rather than ever finishing - it
+            # would otherwise sit there misleadingly forever, since nothing
+            # else ever revisits a sync_runs row once written. Clear it the
+            # moment a new run for the same source starts.
+            self.conn.execute(
+                """UPDATE sync_runs SET status = 'error', finished_at = ?,
+                   error_message = 'crashed (never finished - marked stale '
+                   || 'automatically when a later sync started)'
+                   WHERE source = ? AND status = 'running'
+                   AND started_at < ?""",
+                [now, source, now - STALE_RUNNING])
             cur = self.conn.execute(
                 """INSERT INTO sync_runs (source, started_at, date_from, date_to,
                    rows_written, status) VALUES (?, ?, ?, ?, 0, 'running') RETURNING id""",
-                [source, datetime.now(), date_from, date_to])
+                [source, now, date_from, date_to])
             return cur.fetchone()[0]
 
     def finish_sync(self, run_id: int, rows: int, status: str,
