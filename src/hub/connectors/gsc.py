@@ -5,7 +5,7 @@ from typing import Iterable
 
 from hub.connectors.base import (BaseConnector, FieldRegistry, FieldSpec,
                                  group_by_identity, resolve_targets)
-from hub.connectors.google_auth import get_credentials
+from hub.connectors.google_auth import get_credentials, verify_identity_email
 
 _ROW_LIMIT = 25_000  # Search Console API max rows per request
 
@@ -88,6 +88,14 @@ class SearchConsoleConnector(BaseConnector):
         self._creds = {ident: get_credentials(self.secrets_dir, identity=ident)
                        for ident in groups}
         self._groups = groups
+        # refuse rather than silently query the wrong account if a re-login
+        # ever swapped which real Google account this identity slot holds
+        identity_emails = self.settings.options.get("identity_emails", {})
+        labels = self.settings.options.get("labels", {})
+        for ident, urls in groups.items():
+            for url in urls:
+                verify_identity_email(self.secrets_dir, ident,
+                                      identity_emails.get(url), labels.get(url, url))
 
     def extract(self, date_from: date, date_to: date) -> Iterable[dict]:
         return self.extract_report("core", date_from, date_to)

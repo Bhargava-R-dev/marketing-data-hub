@@ -79,13 +79,24 @@ def annotate_configured(accounts: list[dict], config) -> list[dict]:
 
 
 def add_accounts(config_path: str | Path, source: str,
-                 selections: list[dict], identity: str = "default") -> list[str]:
+                 selections: list[dict], identity: str = "default",
+                 secrets_dir: str | Path | None = None) -> list[str]:
     """Append selected accounts to config.yaml, preserving comments/anchors.
 
     selections: [{"id": ..., "name": ...}]. Ids already present are skipped.
     Returns the ids actually added. Creates the connector block (with the
     default schedule) if it isn't in the config yet. A non-default identity
-    records which Google login owns each added account (options.identities)."""
+    records which Google login owns each added account (options.identities).
+
+    When secrets_dir is given, also pins the identity's CURRENT email as
+    options.identity_emails[id] - a snapshot of "which account this was
+    configured for." A later re-login can swap which account an identity
+    slot actually holds (this happened in the field: 'default' and 'personal'
+    silently traded accounts) without anyone noticing, since config still
+    points by slot NAME, not by account. Connectors check this pin at sync
+    time and refuse rather than silently query the wrong account. Accounts
+    added before this existed (or with secrets_dir omitted) simply have no
+    pin - the check is skipped for them, not enforced retroactively."""
     if source not in SOURCE_KEYS:
         raise KeyError(f"account selection not supported for {source!r} "
                        f"(supported: {list(SOURCE_KEYS)})")
@@ -108,6 +119,12 @@ def add_accounts(config_path: str | Path, source: str,
     if single is not None:
         existing.add(str(single))
 
+    pinned_email = None
+    if secrets_dir is not None:
+        from hub.connectors.google_auth import get_identity_labels
+
+        pinned_email = get_identity_labels(secrets_dir).get(identity or "default")
+
     added: list[str] = []
     for sel in selections:
         sid = str(sel["id"])
@@ -118,6 +135,8 @@ def add_accounts(config_path: str | Path, source: str,
             labels[sid] = sel["name"]
         if identity and identity != "default":
             opts.setdefault("identities", {})[sid] = identity
+        if pinned_email:
+            opts.setdefault("identity_emails", {})[sid] = pinned_email
         existing.add(sid)
         added.append(sid)
 

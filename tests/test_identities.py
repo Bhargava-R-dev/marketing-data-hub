@@ -108,3 +108,90 @@ def test_add_accounts_records_identity(tmp_path):
     add_accounts(p, "ga4", [{"id": "555", "name": "Main"}])
     cfg = load_config(p)
     assert "555" not in cfg.connectors["ga4"].options["identities"]
+
+
+# ---- verify_identity_email: catches an identity swap before it queries wrong data
+
+def test_ga4_authenticate_raises_on_identity_email_mismatch(tmp_path, monkeypatch):
+    from hub.connectors.base import AuthError
+    from hub.connectors.google_auth import set_identity_label
+
+    monkeypatch.setattr("hub.connectors.ga4.get_credentials",
+                        lambda sd, identity=None: f"creds-{identity}")
+    set_identity_label(tmp_path, "default", "analytics.schbang@gmail.com")
+    conn = GA4Connector(ConnectorSettings(options={
+        "property_ids": ["111"],
+        "identity_emails": {"111": "seoteam.schbang2021@gmail.com"},  # pinned at add-time
+        "labels": {"111": "Vetrotech"}}), tmp_path)
+    with pytest.raises(AuthError) as exc:
+        conn.authenticate()
+    assert "Vetrotech" in str(exc.value)
+    assert "seoteam.schbang2021@gmail.com" in str(exc.value)
+    assert "analytics.schbang@gmail.com" in str(exc.value)
+    assert "hub login default" in exc.value.hint
+
+
+def test_ga4_authenticate_passes_when_email_matches(tmp_path, monkeypatch):
+    from hub.connectors.google_auth import set_identity_label
+
+    monkeypatch.setattr("hub.connectors.ga4.get_credentials",
+                        lambda sd, identity=None: f"creds-{identity}")
+    set_identity_label(tmp_path, "default", "seoteam.schbang2021@gmail.com")
+    conn = GA4Connector(ConnectorSettings(options={
+        "property_ids": ["111"],
+        "identity_emails": {"111": "seoteam.schbang2021@gmail.com"},
+        "labels": {"111": "Vetrotech"}}), tmp_path)
+    conn.authenticate()  # must not raise
+
+
+def test_ga4_authenticate_skips_check_when_no_pin_exists(tmp_path, monkeypatch):
+    """Accounts added before this feature existed have no pin - never
+    retroactively enforced, even if the identity has since moved accounts."""
+    from hub.connectors.google_auth import set_identity_label
+
+    monkeypatch.setattr("hub.connectors.ga4.get_credentials",
+                        lambda sd, identity=None: f"creds-{identity}")
+    set_identity_label(tmp_path, "default", "whoever@example.com")
+    conn = GA4Connector(ConnectorSettings(options={
+        "property_ids": ["111"], "labels": {"111": "Vetrotech"}}), tmp_path)
+    conn.authenticate()  # no identity_emails pin -> nothing to check
+
+
+def test_gsc_authenticate_raises_on_identity_email_mismatch(tmp_path, monkeypatch):
+    from hub.connectors.base import AuthError
+    from hub.connectors.google_auth import set_identity_label
+
+    monkeypatch.setattr("hub.connectors.gsc.get_credentials",
+                        lambda sd, identity=None: f"creds-{identity}")
+    set_identity_label(tmp_path, "default", "analytics.schbang@gmail.com")
+    conn = SearchConsoleConnector(ConnectorSettings(options={
+        "site_urls": ["https://vetrotech.com/"],
+        "identity_emails": {"https://vetrotech.com/": "seoteam.schbang2021@gmail.com"},
+        "labels": {"https://vetrotech.com/": "Vetrotech"}}), tmp_path)
+    with pytest.raises(AuthError):
+        conn.authenticate()
+
+
+def test_add_accounts_pins_current_identity_email(tmp_path):
+    from hub.connectors.google_auth import set_identity_label
+    from hub.core.accounts import add_accounts
+    from hub.core.config import load_config
+
+    p = tmp_path / "config.yaml"
+    p.write_text("connectors:\n  ga4:\n    options: {property_ids: []}\n", encoding="utf-8")
+    set_identity_label(tmp_path, "default", "seoteam.schbang2021@gmail.com")
+    add_accounts(p, "ga4", [{"id": "999", "name": "Vetrotech"}], secrets_dir=tmp_path)
+    cfg = load_config(p)
+    assert cfg.connectors["ga4"].options["identity_emails"]["999"] == \
+        "seoteam.schbang2021@gmail.com"
+
+
+def test_add_accounts_skips_pin_without_secrets_dir(tmp_path):
+    from hub.core.accounts import add_accounts
+    from hub.core.config import load_config
+
+    p = tmp_path / "config.yaml"
+    p.write_text("connectors:\n  ga4:\n    options: {property_ids: []}\n", encoding="utf-8")
+    add_accounts(p, "ga4", [{"id": "999", "name": "Vetrotech"}])  # no secrets_dir
+    cfg = load_config(p)
+    assert "identity_emails" not in cfg.connectors["ga4"].options

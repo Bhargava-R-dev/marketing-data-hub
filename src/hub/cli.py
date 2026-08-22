@@ -299,7 +299,8 @@ def accounts(source: str | None = typer.Argument(
         sels = [a for a in chosen if a["source"] == src and not a["configured"]]
         if not sels:
             continue
-        added = add_accounts(config, src, sels, identity=identity)
+        added = add_accounts(config, src, sels, identity=identity,
+                             secrets_dir=cfg.secrets_dir)
         added_total += len(added)
         for a in sels:
             typer.echo(f"[OK] added {src}: {a['name']} ({a['id']})"

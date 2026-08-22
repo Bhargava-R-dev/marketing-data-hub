@@ -160,7 +160,8 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
             if unknown:
                 return {"error": f"not visible to this login: {unknown}"}
             added = add_accounts(config_path, source,
-                                 [visible[i] for i in ids], identity=identity)
+                                 [visible[i] for i in ids], identity=identity,
+                                 secrets_dir=c.secrets_dir)
             return {"added": added}
         except Exception as exc:  # noqa: BLE001
             return {"error": str(exc)}

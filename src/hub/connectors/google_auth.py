@@ -81,6 +81,35 @@ def set_identity_label(secrets_dir: str | Path, identity: str, email: str) -> No
     (secrets_dir / _LABELS_FILE).write_text(json.dumps(labels, indent=2), encoding="utf-8")
 
 
+def verify_identity_email(secrets_dir: str | Path, identity: str | None,
+                          expected_email: str | None, target_label: str) -> None:
+    """Refuse to proceed if the Google account currently behind `identity`
+    isn't the one this target was configured for.
+
+    This is the guard for the exact incident that happened in the field:
+    reconnecting 'default' and 'personal' silently swapped which real
+    account each slot held. Config still pointed by SLOT NAME ('default'),
+    so every brand kept querying - just against the wrong account now,
+    surfacing as confusing 403s far from the actual cause. Skips silently
+    when there's nothing to check against: no expected_email was ever
+    pinned (accounts added before this existed), or the current identity
+    has no known label yet (e.g. still needs_reauth) - this check narrows
+    an existing mismatch, it never blocks a previously-working setup."""
+    if not expected_email:
+        return
+    current = get_identity_labels(secrets_dir).get(identity or "default")
+    if current and current != expected_email:
+        raise AuthError(
+            f"{target_label!r} is configured for the Google account "
+            f"{expected_email!r}, but identity {identity or 'default'!r} "
+            f"currently holds {current!r}.",
+            hint="A re-login likely picked a different Google account than "
+                 f"before. Run 'hub login {identity or 'default'}' again and "
+                 "choose the right account - or if this is intentional (the "
+                 "account genuinely moved), delete the old pin under "
+                 "identity_emails in config.yaml.")
+
+
 def fetch_account_email(creds) -> str | None:
     """The email of the Google account behind these credentials, or None if
     it can't be determined (e.g. the token predates the email scope)."""

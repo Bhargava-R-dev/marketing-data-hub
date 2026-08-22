@@ -302,3 +302,35 @@ def test_login_proceeds_normally_when_not_unattended(tmp_path, monkeypatch):
     flow, _ = _patch_login(monkeypatch, tmp_path)
     ga.login(tmp_path, identity="work", open_browser=False)
     assert flow.fetched_with is not None
+
+
+# ---- verify_identity_email: unit-level coverage of the guard itself -------
+
+def test_verify_identity_email_no_pin_is_a_noop(tmp_path):
+    from hub.connectors.google_auth import verify_identity_email
+    verify_identity_email(tmp_path, "default", None, "Vetrotech")  # no raise
+
+
+def test_verify_identity_email_matches_is_a_noop(tmp_path):
+    from hub.connectors.google_auth import set_identity_label, verify_identity_email
+    set_identity_label(tmp_path, "default", "a@example.com")
+    verify_identity_email(tmp_path, "default", "a@example.com", "Vetrotech")  # no raise
+
+
+def test_verify_identity_email_unlabelled_identity_is_a_noop(tmp_path):
+    """Can't verify against an identity with no known label yet (e.g. still
+    needs_reauth) - this check narrows an existing mismatch, never blocks
+    a setup that simply hasn't been labelled."""
+    from hub.connectors.google_auth import verify_identity_email
+    verify_identity_email(tmp_path, "default", "a@example.com", "Vetrotech")  # no raise
+
+
+def test_verify_identity_email_mismatch_raises_with_both_emails_named(tmp_path):
+    from hub.connectors.google_auth import set_identity_label, verify_identity_email
+    set_identity_label(tmp_path, "personal", "wrong@example.com")
+    with pytest.raises(AuthError) as exc:
+        verify_identity_email(tmp_path, "personal", "right@example.com", "Sharekhan")
+    assert "Sharekhan" in str(exc.value)
+    assert "right@example.com" in str(exc.value)
+    assert "wrong@example.com" in str(exc.value)
+    assert "hub login personal" in exc.value.hint

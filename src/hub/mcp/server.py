@@ -336,14 +336,19 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             from google.analytics.data_v1beta.types import (
                 DateRange, Dimension, Metric, RunReportRequest)
 
-            from hub.connectors.google_auth import get_credentials
+            from hub.connectors.base import AuthError
+            from hub.connectors.google_auth import get_credentials, verify_identity_email
 
             cfg = _cfg()
             target = _resolve_target(cfg, "ga4", "property_ids", property_id, brand)
             if isinstance(target, dict):
                 return target
-            creds = get_credentials(cfg.secrets_dir,
-                                    identity=_identity_for(cfg, "ga4", target))
+            identity = _identity_for(cfg, "ga4", target)
+            ga4_opts = cfg.connectors["ga4"].options if "ga4" in cfg.connectors else {}
+            verify_identity_email(cfg.secrets_dir, identity,
+                                  ga4_opts.get("identity_emails", {}).get(target),
+                                  ga4_opts.get("labels", {}).get(target, target))
+            creds = get_credentials(cfg.secrets_dir, identity=identity)
             client = BetaAnalyticsDataClient(credentials=creds)
             response = client.run_report(RunReportRequest(
                 property=f"properties/{target}",
@@ -356,6 +361,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                     for r in response.rows]
             return {"property_id": target, "row_count": len(rows), "rows": rows,
                     "truncated": len(rows) >= limit}
+        except AuthError as exc:
+            return {"error": str(exc), "hint": exc.hint}
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc),
                     "hint": "dimension/metric names must be native GA4 API names; "
@@ -374,14 +381,19 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         try:
             from googleapiclient.discovery import build
 
-            from hub.connectors.google_auth import get_credentials
+            from hub.connectors.base import AuthError
+            from hub.connectors.google_auth import get_credentials, verify_identity_email
 
             cfg = _cfg()
             target = _resolve_target(cfg, "gsc", "site_urls", site_url, brand)
             if isinstance(target, dict):
                 return target
-            creds = get_credentials(cfg.secrets_dir,
-                                    identity=_identity_for(cfg, "gsc", target))
+            identity = _identity_for(cfg, "gsc", target)
+            gsc_opts = cfg.connectors["gsc"].options if "gsc" in cfg.connectors else {}
+            verify_identity_email(cfg.secrets_dir, identity,
+                                  gsc_opts.get("identity_emails", {}).get(target),
+                                  gsc_opts.get("labels", {}).get(target, target))
+            creds = get_credentials(cfg.secrets_dir, identity=identity)
             service = build("searchconsole", "v1", credentials=creds,
                             cache_discovery=False)
             resp = service.searchanalytics().query(siteUrl=target, body={
@@ -393,6 +405,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                     for r in resp.get("rows", [])]
             return {"site_url": target, "row_count": len(rows), "rows": rows,
                     "truncated": len(rows) >= row_limit}
+        except AuthError as exc:
+            return {"error": str(exc), "hint": exc.hint}
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
@@ -444,14 +458,16 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             from hub.core.accounts import add_accounts as _add
             from hub.core.accounts import discover_all
 
-            creds = get_credentials(_cfg().secrets_dir, identity=identity)
+            secrets_dir = _cfg().secrets_dir
+            creds = get_credentials(secrets_dir, identity=identity)
             visible = {a["id"]: a for a in discover_all(creds, source)}
             unknown = [i for i in account_ids if i not in visible]
             if unknown:
                 return {"error": f"not visible to this Google login: {unknown}",
                         "hint": "use ids exactly as returned by list_available_accounts"}
             added = _add(config_path, source,
-                         [visible[i] for i in account_ids], identity=identity)
+                         [visible[i] for i in account_ids], identity=identity,
+                         secrets_dir=secrets_dir)
             # no in-memory patching needed - every tool call reloads config.yaml
             # fresh (_cfg()), so the file write above is immediately visible
             return {"added": added,
