@@ -189,6 +189,34 @@ class Storage:
                      "rows": n, "first_date": first, "latest_date": latest}
                     for s, aid, name, n, first, latest in cur.fetchall()]
 
+    def date_gaps(self, source: str, date_from: date, date_to: date,
+                 report: str = "core", account_id: str | None = None) -> dict:
+        """Missing calendar days within a range, for one account if given
+        (or the whole source otherwise). Deliberately scoped to a single
+        account when possible: a source-level check can mask a real gap -
+        one account's hole disappears behind another account covering the
+        same dates, which is exactly how a 68-day outage went unnoticed
+        while the dashboard's source-level date range looked fine."""
+        where = "source = ? AND report = ?"
+        params: list = [source, report]
+        if account_id is not None:
+            where += " AND account_id = ?"
+            params.append(account_id)
+        with self._lock:
+            cur = self.conn.execute(
+                f"""WITH days AS (
+                        SELECT unnest(generate_series(?::DATE, ?::DATE,
+                                                      INTERVAL 1 DAY))::DATE d
+                    ), have AS (SELECT DISTINCT date FROM metrics WHERE {where})
+                    SELECT d FROM days LEFT JOIN have ON days.d = have.date
+                    WHERE have.date IS NULL ORDER BY d""",
+                [date_from, date_to, *params])
+            missing = [r[0] for r in cur.fetchall()]
+        total_days = (date_to - date_from).days + 1
+        return {"days_requested": total_days,
+                "days_with_data": total_days - len(missing),
+                "missing_dates": [d.isoformat() for d in missing]}
+
     # ---- sync log -----------------------------------------------------
     def start_sync(self, source: str, date_from: date, date_to: date) -> int:
         with self._lock:

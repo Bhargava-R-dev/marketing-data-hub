@@ -306,3 +306,71 @@ def test_resolve_target_sees_newly_added_brand_without_rebuild(tmp_path):
 
     result = mcp._resolve_target(mcp._cfg(), "gsc", "site_urls", None, "newsite")
     assert result == "https://newsite.com/"
+
+
+# ---- completeness signal: a partial sum must never look like a full one --
+
+def test_query_metrics_flags_incomplete_range(tmp_path):
+    """seed() only writes today's date - querying a wider range must flag
+    the missing days instead of silently returning a partial sum."""
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["clicks"], date_from="2020-01-01", date_to="2020-01-10"))
+    assert result["complete"] is False
+    assert result["days_requested"] == 10
+    assert len(result["incomplete_accounts"]) == 2  # Vetrotech + Sharekhan
+    assert "warning" in result and "INCOMPLETE" in result["warning"]
+
+
+def test_query_metrics_complete_when_range_fully_covered(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["clicks"], date_from=today, date_to=today))
+    assert result["complete"] is True
+    assert "incomplete_accounts" not in result
+    assert "warning" not in result
+
+
+def test_query_metrics_completeness_scoped_to_matched_brand_only(tmp_path):
+    """Filtering to one brand must only report that brand's completeness,
+    not every account's."""
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_query_metrics(
+        fields=["clicks"], date_from="2020-01-01", date_to="2020-01-05",
+        brand="vetrotec"))
+    assert result["complete"] is False
+    assert [a["account_name"] for a in result["incomplete_accounts"]] == ["Vetrotech"]
+
+
+def test_date_gaps_reports_missing_dates(tmp_path):
+    from hub.core.storage import Storage
+
+    store = Storage(str(tmp_path / "t.duckdb"))
+    d = date.today()
+    store.replace_rows("gsc", d, d, [
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="A", clicks=1)])
+    gaps = store.date_gaps("gsc", date(2020, 1, 1), date(2020, 1, 5), account_id="x")
+    assert gaps == {"days_requested": 5, "days_with_data": 0,
+                    "missing_dates": ["2020-01-01", "2020-01-02", "2020-01-03",
+                                      "2020-01-04", "2020-01-05"]}
+    store.close()
+
+
+def test_date_gaps_no_gaps_when_fully_covered(tmp_path):
+    from hub.core.storage import Storage
+
+    store = Storage(str(tmp_path / "t.duckdb"))
+    d = date(2026, 6, 1)
+    store.replace_rows("gsc", d, d, [
+        UnifiedRow(date=d, source="gsc", account_id="x", account_name="A", clicks=1)])
+    gaps = store.date_gaps("gsc", d, d, account_id="x")
+    assert gaps == {"days_requested": 1, "days_with_data": 1, "missing_dates": []}
+    store.close()

@@ -89,9 +89,9 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         if campaign:
             filters["campaign"] = campaign
 
+        known = storage.accounts()
         matched_names: list[str] = []
         if brand:
-            known = storage.accounts()
             matched_names = sorted({a["account_name"] for a in known
                                     if brand.lower() in a["account_name"].lower()})
             if not matched_names:
@@ -149,6 +149,32 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                       for k, v in r.items()} for r in rows]})
         if matched_names:
             result["matched_brands"] = matched_names
+
+        # completeness signal: a query over a range with real holes must
+        # never look identical to one with none. Checked per-account (not
+        # just per-source) - one account's gap can hide behind another
+        # account's coverage of the same dates otherwise.
+        in_scope = [a for a in known
+                    if (a["account_name"] in matched_names if matched_names
+                        else (a["source"] == source if source else True))]
+        incomplete = []
+        for a in in_scope:
+            gaps = storage.date_gaps(a["source"], df, dt, report=report,
+                                     account_id=a["account_id"])
+            if gaps["days_with_data"] < gaps["days_requested"]:
+                incomplete.append({"account_name": a["account_name"],
+                                   "source": a["source"], **gaps})
+        result["days_requested"] = (dt - df).days + 1
+        result["complete"] = not incomplete
+        if incomplete:
+            worst = min(incomplete, key=lambda i: i["days_with_data"])
+            result["incomplete_accounts"] = incomplete
+            result["warning"] = (
+                f"INCOMPLETE DATA: {len(incomplete)} of {len(in_scope)} account(s) "
+                f"in this range have missing days (worst: {worst['account_name']} - "
+                f"only {worst['days_with_data']}/{worst['days_requested']} days). "
+                "Numbers above are a partial sum, not the true total - mention this "
+                "when reporting them, or run a backfill to fill the gap first.")
         return result
 
     def _query_metrics_safe(**kwargs) -> dict:
@@ -281,7 +307,13 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         CAVEAT: Search Console (gsc) data has a 2-3 day reporting lag from Google,
         so the most recent days of any range will be missing for gsc metrics
         (clicks/impressions) — mention this when reporting recent gsc numbers.
-        GA4 data (sessions/users/conversions) is current through yesterday/today."""
+        GA4 data (sessions/users/conversions) is current through yesterday/today.
+
+        COMPLETENESS: every response includes complete=true/false. If false,
+        the totals are a PARTIAL SUM over a range with real gaps (not just
+        gsc's normal 2-3 day lag) — see incomplete_accounts/warning for which
+        account and how many days are missing. Always mention this instead of
+        reporting the number as if it were the true total; suggest a backfill."""
         return _query_metrics_safe(
             fields=fields, date_preset=date_preset, date_from=date_from,
             date_to=date_to, source=source, campaign=campaign, brand=brand,
