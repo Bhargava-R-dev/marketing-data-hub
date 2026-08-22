@@ -424,3 +424,85 @@ def test_sync_status_reports_the_actual_window_covered(tmp_path):
     result = asyncio.run(mcp._call_sync_status())
     assert result["runs"]["gsc"]["date_from"] == "2026-05-01"
     assert result["runs"]["gsc"]["date_to"] == "2026-07-31"
+
+
+# ---- backfill: the tool add_accounts/trigger_sync referenced but that -----
+# ---- never actually existed as something callable -------------------------
+
+def test_backfill_tool_registered(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    names = {t.name for t in asyncio.run(mcp.list_tools())}
+    assert "backfill" in names
+
+
+def test_backfill_spawns_the_cli_backfill_command(tmp_path, monkeypatch):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    spawned = {}
+
+    def fake_popen(cmd, **kwargs):
+        spawned["cmd"] = cmd
+        return FakeProc(returncode=0)
+    monkeypatch.setattr("hub.mcp.server.subprocess.Popen", fake_popen)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_backfill(
+        source="gsc", date_from="2026-05-01", date_to="2026-07-31"))
+    assert result["status"] == "started"
+    assert "backfill" in spawned["cmd"] and "gsc" in spawned["cmd"]
+    assert "--from" in spawned["cmd"] and "2026-05-01" in spawned["cmd"]
+    assert "--to" in spawned["cmd"] and "2026-07-31" in spawned["cmd"]
+
+
+def test_backfill_rejects_all_as_source(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_backfill(source="all", date_from="2026-01-01"))
+    assert "error" in result and "one specific source" in result["error"]
+
+
+def test_backfill_rejects_bad_date_format(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_backfill(source="gsc", date_from="not-a-date"))
+    assert "error" in result
+
+
+def test_backfill_rejects_unconfigured_source(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_backfill(source="google_ads", date_from="2026-01-01"))
+    assert "error" in result and "not configured" in result["error"]
+
+
+def test_backfill_refuses_while_a_sync_is_already_running(tmp_path, monkeypatch):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    store = Storage(cfg.db_path)
+    store.start_sync("gsc", date.today(), date.today())  # left 'running'
+    store.close()
+
+    def explode(*a, **kw):
+        raise AssertionError("must not spawn while another run is active")
+    monkeypatch.setattr("hub.mcp.server.subprocess.Popen", explode)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_backfill(source="gsc", date_from="2026-01-01"))
+    assert result["status"] == "already_running"
+
+
+def test_backfill_and_trigger_sync_share_the_same_run_guard(tmp_path, monkeypatch):
+    """A backfill spawned from THIS session must block a trigger_sync
+    (and vice versa) - they write to the same single-writer database."""
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    monkeypatch.setattr("hub.mcp.server.subprocess.Popen",
+                        lambda cmd, **kw: FakeProc(returncode=None))  # still running
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    first = asyncio.run(mcp._call_backfill(source="gsc", date_from="2026-01-01"))
+    second = asyncio.run(mcp._call_trigger_sync(source="gsc"))
+    assert first["status"] == "started"
+    assert second["status"] == "already_running"

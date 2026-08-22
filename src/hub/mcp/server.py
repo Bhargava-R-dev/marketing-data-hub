@@ -173,7 +173,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                 f"in this range have missing days (worst: {worst['account_name']} - "
                 f"only {worst['days_with_data']}/{worst['days_requested']} days). "
                 "Numbers above are a partial sum, not the true total - mention this "
-                "when reporting them, or run a backfill to fill the gap first.")
+                "when reporting them, or call backfill(source, date_from=...) first.")
         return result
 
     def _query_metrics_safe(**kwargs) -> dict:
@@ -312,7 +312,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         the totals are a PARTIAL SUM over a range with real gaps (not just
         gsc's normal 2-3 day lag) — see incomplete_accounts/warning for which
         account and how many days are missing. Always mention this instead of
-        reporting the number as if it were the true total; suggest a backfill."""
+        reporting the number as if it were the true total; suggest calling
+        backfill(source, date_from=...) to fill the gap."""
         return _query_metrics_safe(
             fields=fields, date_preset=date_preset, date_from=date_from,
             date_to=date_to, source=source, campaign=campaign, brand=brand,
@@ -483,7 +484,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         for list_available_accounts so syncs use the right Google login. Only
         ids visible to that login are accepted. ALWAYS confirm the specific
         accounts with the user before calling this. After adding: trigger_sync
-        for a first load, and suggest a backfill for history."""
+        for a first load, then call backfill(source, date_from=...) for
+        history further back than trigger_sync's rolling window reaches."""
         try:
             from hub.connectors.google_auth import get_credentials
             from hub.core.accounts import add_accounts as _add
@@ -504,8 +506,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             return {"added": added,
                     "skipped_already_configured":
                         [i for i in account_ids if i not in added],
-                    "next_steps": "trigger_sync to load the rolling window; run "
-                                  "'hub backfill' from a terminal for history"}
+                    "next_steps": "trigger_sync to load the rolling window; "
+                                  "backfill(source, date_from=...) for history"}
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
@@ -596,6 +598,62 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc), "sync_in_progress": True}
 
+    def _trigger_backfill(source: str, date_from: str,
+                          date_to: str | None = None) -> dict:
+        if source == "all":
+            return {"error": "backfill needs one specific source, not 'all' - "
+                             "different sources often need different ranges. "
+                             "Call once per source."}
+        try:
+            datetime.strptime(date_from, "%Y-%m-%d")
+            if date_to:
+                datetime.strptime(date_to, "%Y-%m-%d")
+        except ValueError:
+            return {"error": "dates must be YYYY-MM-DD"}
+
+        proc = last_spawned["proc"]
+        if proc is not None and proc.poll() is None:
+            return {"status": "already_running",
+                    "detail": f"a sync/backfill of {last_spawned['source']!r} "
+                              "started from this session is still running - "
+                              "poll sync_status until it finishes"}
+        try:
+            running = _with_storage(_running_source)
+        except RuntimeError as exc:
+            return {"status": "already_running", "detail": str(exc)}
+        if running:
+            return {"status": "already_running",
+                    "detail": f"a sync of {running!r} is still running - "
+                              "poll sync_status until it finishes"}
+
+        cfg = _cfg()
+        if source not in cfg.connectors:
+            return {"error": f"{source!r} is not configured",
+                    "hint": f"configured sources: {list(cfg.connectors)}"}
+
+        sync_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with sync_log_path.open("a", encoding="utf-8") as log:
+            log.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] MCP triggered "
+                      f"backfill {source!r} from {date_from} to {date_to or 'today'}\n")
+            log.flush()
+            cmd = [sys.executable, "-m", "hub.cli", "backfill", source,
+                  "--config", config_path, "--from", date_from]
+            if date_to:
+                cmd += ["--to", date_to]
+            last_spawned["proc"] = subprocess.Popen(
+                cmd, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                creationflags=(subprocess.CREATE_NO_WINDOW
+                               if sys.platform == "win32" else 0))
+            last_spawned["source"] = source
+        return {"status": "started", "source": source,
+                "date_from": date_from, "date_to": date_to or "today",
+                "log": str(sync_log_path),
+                "note": "backfills can take minutes to hours for large ranges - "
+                        "poll sync_status rather than waiting. Runs in <=90-day "
+                        "chunks, each committed as it completes, so an interruption "
+                        "loses no completed progress - re-run with an adjusted "
+                        "--from to resume."}
+
     # exposed for tests
     async def _call_trigger_sync(**kwargs) -> dict:
         return _trigger_sync(**kwargs)
@@ -604,6 +662,10 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
     async def _call_sync_status() -> dict:
         return _sync_status_safe()
     mcp._call_sync_status = _call_sync_status  # type: ignore[attr-defined]
+
+    async def _call_backfill(**kwargs) -> dict:
+        return _trigger_backfill(**kwargs)
+    mcp._call_backfill = _call_backfill  # type: ignore[attr-defined]
 
     @mcp.tool()
     def trigger_sync(source: str) -> dict:
@@ -615,9 +677,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         IMPORTANT: this ONLY refreshes a rolling window (see sync_window in
         the response, e.g. 'last 30 days') - it does NOT fill in older gaps.
         A 'success' status means that recent window synced cleanly, NOT that
-        all history is now present. If older data is missing, that needs an
-        actual backfill (a separate operation, run from a terminal:
-        'hub backfill <source> --from YYYY-MM-DD'), not another trigger_sync."""
+        all history is now present. If older data is missing, call
+        backfill(source, date_from=...) instead - not another trigger_sync."""
         return _trigger_sync(source)
 
     @mcp.tool()
@@ -628,5 +689,19 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         so check this before assuming 'success' means fully caught up. Call
         after trigger_sync to know when fresh data is queryable."""
         return _sync_status_safe()
+
+    @mcp.tool()
+    def backfill(source: str, date_from: str, date_to: str | None = None) -> dict:
+        """Fill in OLDER history that trigger_sync's rolling window never
+        reaches - use this when query_metrics reports complete=false, or a
+        gap shows up before the range trigger_sync covers (see its
+        sync_window). Runs in the background; poll sync_status for progress.
+
+        source must be one specific source (e.g. "ga4"), not "all" - call
+        once per source. date_from/date_to are YYYY-MM-DD; date_to defaults
+        to today. Can take minutes to hours for a large range - don't wait
+        on it, just poll sync_status later. Refuses to start if a sync or
+        backfill is already running (only one write at a time)."""
+        return _trigger_backfill(source, date_from, date_to)
 
     return mcp
