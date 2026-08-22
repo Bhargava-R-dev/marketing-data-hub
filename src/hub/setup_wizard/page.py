@@ -245,7 +245,18 @@ async function loadAccounts() {
 }
 
 function accountRow(a, i) {
-  const label = `${esc(a.name)}` + (a.id && a.id !== a.name ? ` <span class="muted">— ${esc(a.id)}</span>` : "");
+  let label = `${esc(a.name)}` + (a.id && a.id !== a.name ? ` <span class="muted">— ${esc(a.id)}</span>` : "");
+  if (a.duplicate_name) {
+    // a real, confirmed situation: two properties can be named IDENTICALLY
+    // under the same parent, one of them completely dormant - flag it so
+    // the wrong one isn't picked by mistake, same as almost happened here
+    const activity = a.active_recently === false
+      ? '<span class="err">no data in last 30 days - likely the wrong one</span>'
+      : a.active_recently === true
+        ? '<span class="ok">has recent data</span>'
+        : '<span class="muted">activity unknown</span>';
+    label += ` <span class="err">⚠ another account is also named "${esc(a.name)}"</span> (${activity})`;
+  }
   return a.configured
     ? `<label class="muted">✓ ${label} <span class="muted">already added</span></label>`
     : `<label><input type="checkbox" data-i="${i}"> ${label}</label>`;

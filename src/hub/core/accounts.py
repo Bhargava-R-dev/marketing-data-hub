@@ -50,12 +50,65 @@ def discover_gsc(creds) -> list[dict]:
     } for s in resp.get("siteEntry", [])]
 
 
+def flag_duplicate_names(accounts: list[dict]) -> list[dict]:
+    """Mark accounts whose (source, parent, name) exactly matches another
+    entry. This is a real, confirmed situation: two GA4 properties BOTH
+    literally named 'Fevicreate' existed under the same parent account,
+    one of them entirely dormant (zero data, ever) - indistinguishable by
+    name alone in a picker, and the wrong one got synced by mistake."""
+    from collections import Counter
+
+    keys = [(a["source"], a.get("parent", ""), a["name"]) for a in accounts]
+    counts = Counter(keys)
+    for a, k in zip(accounts, keys):
+        a["duplicate_name"] = counts[k] > 1
+    return accounts
+
+
+def probe_ga4_activity(creds, property_ids: list[str], days: int = 30) -> dict[str, bool | None]:
+    """Cheap live check: any GA4 sessions at all in the last N days?
+
+    Deliberately only ever called for a SMALL, targeted set (duplicate-
+    named properties) - probing every discoverable property would be far
+    too slow (a real Google login here can see 150+ properties)."""
+    from datetime import date, timedelta
+
+    from google.analytics.data_v1beta import BetaAnalyticsDataClient
+    from google.analytics.data_v1beta.types import DateRange, Metric, RunReportRequest
+
+    client = BetaAnalyticsDataClient(credentials=creds)
+    today = date.today()
+    date_range = DateRange(start_date=(today - timedelta(days=days)).isoformat(),
+                           end_date=today.isoformat())
+    out: dict[str, bool | None] = {}
+    for pid in property_ids:
+        try:
+            resp = client.run_report(RunReportRequest(
+                property=f"properties/{pid}", metrics=[Metric(name="sessions")],
+                date_ranges=[date_range]))
+            out[pid] = bool(resp.rows) and int(resp.rows[0].metric_values[0].value) > 0
+        except Exception:  # noqa: BLE001 - no access / API error -> unknown, not "dormant"
+            out[pid] = None
+    return out
+
+
 def discover_all(creds, source: str | None = None) -> list[dict]:
     out: list[dict] = []
     if source in (None, "ga4"):
         out += discover_ga4(creds)
     if source in (None, "gsc"):
         out += discover_gsc(creds)
+    flag_duplicate_names(out)
+
+    dup_ga4_ids = [a["id"] for a in out if a["source"] == "ga4" and a["duplicate_name"]]
+    if dup_ga4_ids:
+        try:
+            active = probe_ga4_activity(creds, dup_ga4_ids)
+        except Exception:  # noqa: BLE001 - discovery must still succeed without this
+            active = {}
+        for a in out:
+            if a["id"] in active:
+                a["active_recently"] = active[a["id"]]
     return out
 
 

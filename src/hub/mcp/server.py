@@ -487,7 +487,14 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         site one Google login can access (source: "ga4" | "gsc" | omit for
         both), with configured=true on those already syncing. With multiple
         logins, pass identity= (see list_identities). Show the user the
-        unconfigured ones and ask which to add, then call add_accounts."""
+        unconfigured ones and ask which to add, then call add_accounts.
+
+        duplicate_name=true on an entry means another account shares its
+        EXACT name under the same parent - confirmed real: two GA4
+        properties both literally named the same thing, one entirely
+        dormant. Check active_recently for those (True/False/None=unknown
+        - couldn't be probed) and warn the user before they add the wrong
+        one; don't just pick whichever comes first."""
         try:
             from hub.connectors.google_auth import get_credentials
             from hub.core.accounts import annotate_configured, discover_all

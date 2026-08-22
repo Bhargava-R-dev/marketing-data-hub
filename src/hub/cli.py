@@ -306,12 +306,24 @@ def accounts(source: str | None = typer.Argument(
         raise typer.Exit(0)
 
     by_num = {}
+    any_dupes = False
     for n, a in enumerate(sorted(found, key=lambda a: (a["source"], a["parent"], a["name"])), 1):
         by_num[n] = a
         mark = "*" if a["configured"] else " "
         parent = f" ({a['parent']})" if a["parent"] and a["parent"] != a["name"] else ""
-        typer.echo(f"{n:>4} [{mark}] {a['source']:4} {a['name']}{parent}  ->  {a['id']}")
+        warn = ""
+        if a.get("duplicate_name"):
+            any_dupes = True
+            active = a.get("active_recently")
+            warn = ("  [!] DUPLICATE NAME - " +
+                   ("no data in 30d, likely wrong" if active is False
+                    else "has recent data" if active is True else "activity unknown"))
+        typer.echo(f"{n:>4} [{mark}] {a['source']:4} {a['name']}{parent}  ->  {a['id']}{warn}")
     typer.echo("\n  [*] = already in config.yaml")
+    if any_dupes:
+        typer.echo("  [!] = another account shares this exact name under the same "
+                  "parent - a real GA4 setup can have a dormant duplicate "
+                  "(confirmed: two properties both named 'Fevicreate', one dead)")
 
     if not add:
         typer.echo("Run again with --add to select accounts to configure.")
