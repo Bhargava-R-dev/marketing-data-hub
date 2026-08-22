@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import duckdb
@@ -549,10 +549,29 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                 creationflags=(subprocess.CREATE_NO_WINDOW
                                if sys.platform == "win32" else 0))
             last_spawned["source"] = source
+
+        # a bare "success" reads as "you're caught up" - it isn't. This is
+        # only ever a ROLLING window; a gap from weeks/months ago (an auth
+        # outage, a broken property) is never touched by this call, no
+        # matter how many times it's run. Say the actual window up front.
+        cfg = _cfg()
+        expanded = list(cfg.connectors) if source == "all" else [source]
+        windows = {s: cfg.connectors[s].window_days for s in expanded
+                  if s in cfg.connectors}
+        today = date.today()
+        window_desc = ", ".join(
+            f"{s}: last {d} days ({(today - timedelta(days=d)).isoformat()} to "
+            f"{today.isoformat()})" for s, d in windows.items())
         return {"status": "started", "source": source, "log": str(sync_log_path),
-                "note": "runs in the background - poll sync_status to see when it "
+                "sync_window": window_desc or None,
+                "note": f"This ONLY refreshes a rolling window ({window_desc}) - "
+                        "it does NOT fill in older gaps, no matter what the result "
+                        "says. If history further back is missing (check "
+                        "query_metrics' complete=false / days_with_data), that "
+                        "needs a separate backfill, not another trigger_sync. "
+                        "Runs in the background - poll sync_status to see when it "
                         "finishes; queries may briefly report the database as busy "
-                        "while the sync holds the write lock"}
+                        "while the sync holds the write lock."}
 
     def _sync_status(storage) -> dict:
         runs = {}
@@ -563,6 +582,10 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                 "finished_at": run["finished_at"].isoformat() if run["finished_at"] else None,
                 "rows_written": run["rows_written"],
                 "error_message": run["error_message"],
+                # the actual window this run covered - "success" over the
+                # last 30 days is not the same as "success, fully caught up"
+                "date_from": run["date_from"].isoformat() if run["date_from"] else None,
+                "date_to": run["date_to"].isoformat() if run["date_to"] else None,
             }
         return {"runs": runs,
                 "sync_in_progress": _running_source(storage) is not None}
@@ -587,14 +610,23 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         """Start a sync for one source (or 'all') in the background and return
         immediately. A full sync takes a few minutes - poll sync_status to see
         when it finishes, then query. Refuses to start if a sync is already
-        running."""
+        running.
+
+        IMPORTANT: this ONLY refreshes a rolling window (see sync_window in
+        the response, e.g. 'last 30 days') - it does NOT fill in older gaps.
+        A 'success' status means that recent window synced cleanly, NOT that
+        all history is now present. If older data is missing, that needs an
+        actual backfill (a separate operation, run from a terminal:
+        'hub backfill <source> --from YYYY-MM-DD'), not another trigger_sync."""
         return _trigger_sync(source)
 
     @mcp.tool()
     def sync_status() -> dict:
-        """Show each source's most recent sync run (status, timestamps, rows)
-        and whether a sync is currently in progress. Call this after
-        trigger_sync to know when fresh data is queryable."""
+        """Show each source's most recent sync run: status, timestamps, rows,
+        and the exact date_from/date_to it covered - a run's date range can
+        be much narrower than the account's full history (see trigger_sync),
+        so check this before assuming 'success' means fully caught up. Call
+        after trigger_sync to know when fresh data is queryable."""
         return _sync_status_safe()
 
     return mcp

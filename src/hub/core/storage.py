@@ -257,13 +257,19 @@ class Storage:
     def last_runs(self) -> dict[str, dict]:
         with self._lock:
             cur = self.conn.execute(
-                """SELECT source, started_at, finished_at, rows_written, status, error_message
+                """SELECT source, started_at, finished_at, rows_written, status,
+                   error_message, date_from, date_to
                    FROM sync_runs QUALIFY ROW_NUMBER() OVER
                    (PARTITION BY source ORDER BY started_at DESC) = 1""")
             out = {}
-            for s, started, finished, rows, status, err in cur.fetchall():
+            for s, started, finished, rows, status, err, d_from, d_to in cur.fetchall():
                 out[s] = {"started_at": started, "finished_at": finished,
-                          "rows_written": rows, "status": status, "error_message": err}
+                          "rows_written": rows, "status": status, "error_message": err,
+                          # the window this run actually covered - a "success"
+                          # covering the last 30 days looks identical to one
+                          # covering 2 years without this; callers must be
+                          # able to tell "caught up" from "just the recent bit"
+                          "date_from": d_from, "date_to": d_to}
             return out
 
     def close(self) -> None:

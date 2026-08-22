@@ -374,3 +374,53 @@ def test_date_gaps_no_gaps_when_fully_covered(tmp_path):
     gaps = store.date_gaps("gsc", d, d, account_id="x")
     assert gaps == {"days_requested": 1, "days_with_data": 1, "missing_dates": []}
     store.close()
+
+
+# ---- trigger_sync/sync_status must never let a partial window look like ---
+# ---- "fully caught up" (the reported symptom: 'success' after re-consent --
+# ---- covering only ~60 days, no signal it skipped the older gap) ----------
+
+def test_trigger_sync_states_the_actual_window(tmp_path, monkeypatch):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    monkeypatch.setattr("hub.mcp.server.subprocess.Popen",
+                        lambda cmd, **kw: FakeProc(returncode=0))
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_trigger_sync(source="gsc"))
+    assert result["status"] == "started"
+    assert "gsc" in result["sync_window"]
+    assert "30 days" in result["sync_window"]  # ConnectorSettings default
+    assert "does NOT fill in older gaps" in result["note"]
+
+
+def test_trigger_sync_all_states_every_configured_source(tmp_path, monkeypatch):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    # build_mcp() reloads config.yaml fresh (fix #1) - mutating the in-memory
+    # cfg object after this point has no effect; write the extra connector
+    # to the actual file so 'all' sees both sources
+    (tmp_path / "config.yaml").write_text(
+        f"db_path: {cfg.db_path}\n"
+        "connectors:\n"
+        "  gsc:\n    options: {site_url: x}\n"
+        "  ga4:\n    window_days: 7\n    options: {property_id: '1'}\n",
+        encoding="utf-8")
+    monkeypatch.setattr("hub.mcp.server.subprocess.Popen",
+                        lambda cmd, **kw: FakeProc(returncode=0))
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_trigger_sync(source="all"))
+    assert "gsc" in result["sync_window"] and "ga4" in result["sync_window"]
+    assert "7 days" in result["sync_window"]
+
+
+def test_sync_status_reports_the_actual_window_covered(tmp_path):
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    store = Storage(cfg.db_path)
+    run_id = store.start_sync("gsc", date(2026, 5, 1), date(2026, 7, 31))
+    store.finish_sync(run_id, 100, "success")
+    store.close()
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    result = asyncio.run(mcp._call_sync_status())
+    assert result["runs"]["gsc"]["date_from"] == "2026-05-01"
+    assert result["runs"]["gsc"]["date_to"] == "2026-07-31"
