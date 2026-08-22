@@ -46,6 +46,13 @@ function syncBadge(sync) {
   return `<span class="err">✗ ${esc(sync.error || sync.status)}</span>`;
 }
 
+function freshnessBadge(f) {
+  if (!f) return "";
+  if (f.status === "no_data") return '<span class="muted">no data</span>';
+  if (f.status === "current") return '<span class="ok">&check; current</span>';
+  return `<span class="err">&#9888; ${f.days_behind} day(s) behind expected</span>`;
+}
+
 function render(data) {
   const el = document.getElementById("content");
   if (data.busy) {
@@ -64,13 +71,14 @@ function render(data) {
       </div>
       ${g.accounts.length ? `
       <table>
-        <tr><th>Brand</th><th>Google login</th><th>Date range</th><th>Rows</th></tr>
+        <tr><th>Brand</th><th>Google login</th><th>Date range</th><th>Rows</th><th>Freshness</th></tr>
         ${g.accounts.map(a => `
           <tr>
             <td>${esc(a.account_name)}</td>
             <td class="muted">${esc(a.identity)}</td>
             <td>${esc(a.first_date || "—")} &rarr; ${esc(a.latest_date || "—")}</td>
             <td>${fmtNum(a.rows)}</td>
+            <td>${freshnessBadge(a.freshness)}</td>
           </tr>`).join("")}
       </table>` : '<p class="muted">no accounts configured for this source yet</p>'}
     </div>`).join("");

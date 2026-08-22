@@ -113,3 +113,14 @@ def test_dashboard_mounted_inside_wizard(tmp_path):
     # reflects what's actually IN THE DB (both sources, from seeded_config),
     # not just what this particular config.yaml happens to list
     assert {g["source"] for g in r.json()["groups"]} == {"ga4", "gsc"}
+
+
+def test_build_dashboard_includes_per_account_freshness(tmp_path):
+    """Freshness is per-account, not just per-source - a source-wide date
+    range can look healthy while one specific brand has quietly gone stale."""
+    cfg = seeded_config(tmp_path)  # Fevicreate's ga4 row is dated 2026-06-30
+    data = build_dashboard(cfg)
+    ga4 = next(g for g in data["groups"] if g["source"] == "ga4")
+    fevicreate = next(a for a in ga4["accounts"] if a["account_name"] == "Fevicreate")
+    assert fevicreate["freshness"]["status"] == "stale"
+    assert fevicreate["freshness"]["days_behind"] > 0

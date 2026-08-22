@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
+
 from hub.core.config import HubConfig
+from hub.core.freshness import interpret_freshness
 from hub.core.storage import Storage
 
 
@@ -36,12 +39,17 @@ def build_dashboard(config: HubConfig) -> dict:
         source = a["source"]
         identity = labels_by_source.get(source, {}).get("identities", {}).get(
             a["account_id"], "default")
+        latest: date | None = a["latest_date"]
         by_source.setdefault(source, []).append({
             "account_name": a["account_name"],
             "identity": identity_labels.get(identity, identity),
             "first_date": a["first_date"].isoformat() if a["first_date"] else None,
-            "latest_date": a["latest_date"].isoformat() if a["latest_date"] else None,
+            "latest_date": latest.isoformat() if latest else None,
             "rows": a["rows"],
+            # per-account, not just per-source: one brand quietly falling
+            # behind (an auth outage, a broken property) must not hide
+            # behind a source-wide date range that still looks healthy
+            "freshness": interpret_freshness(source, latest),
         })
 
     groups = []
