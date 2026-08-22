@@ -10,7 +10,7 @@ import duckdb
 from fastmcp import FastMCP
 
 from hub.connectors.catalog import connector_class, extra_metric_fields
-from hub.core.config import HubConfig
+from hub.core.config import HubConfig, load_config
 from hub.core.models import CORE_METRICS
 from hub.core.presets import COMPARE_MODES, resolve_dates, shift_range
 from hub.core.status import source_statuses
@@ -39,6 +39,15 @@ def _with_deltas(current: dict, previous: dict, metric_names: list[str]) -> dict
 def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
     mcp = FastMCP("marketing-data-hub")
 
+    def _cfg() -> HubConfig:
+        """Reload config.yaml fresh on every call. The MCP server is a
+        long-lived process (Claude Desktop keeps it running for the whole
+        session) - a single object captured at startup would silently go
+        stale the moment anyone fixes an account mapping or adds a brand
+        via 'hub setup'/'hub accounts', causing 403s that look like a
+        credentials bug but are really just reading yesterday's settings."""
+        return load_config(config_path)
+
     if not Path(config.db_path).exists():
         Storage(config.db_path).close()  # create schema so read-only open works
 
@@ -48,7 +57,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         last_exc: Exception | None = None
         for attempt in range(_LOCK_RETRIES):
             try:
-                return Storage(config.db_path, read_only=True)
+                return Storage(_cfg().db_path, read_only=True)
             except (duckdb.IOException, duckdb.ConnectionException) as exc:
                 last_exc = exc
                 if attempt < _LOCK_RETRIES - 1:
@@ -190,7 +199,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                     for c in _with_storage(lambda s: s.report_coverage())}
         out = []
         for src in (
-                [source] if source else list(config.connectors)):
+                [source] if source else list(_cfg().connectors)):
             try:
                 reports = connector_class(src).get_reports()
             except (KeyError, ImportError):
@@ -278,17 +287,17 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             date_to=date_to, source=source, campaign=campaign, brand=brand,
             report=report, filters=filters, compare=compare)
 
-    def _identity_for(connector: str, target: str) -> str | None:
+    def _identity_for(cfg: HubConfig, connector: str, target: str) -> str | None:
         """Which Google login owns this property/site (options.identities)."""
-        if connector not in config.connectors:
+        if connector not in cfg.connectors:
             return None
-        return (config.connectors[connector].options.get("identities") or {}).get(target)
+        return (cfg.connectors[connector].options.get("identities") or {}).get(target)
 
-    def _resolve_target(connector: str, plural_key: str, target: str | None,
-                        brand: str | None) -> str | dict:
+    def _resolve_target(cfg: HubConfig, connector: str, plural_key: str,
+                        target: str | None, brand: str | None) -> str | dict:
         """Turn a brand name or explicit id into one configured GA4 property /
         GSC site. Returns the target string, or an error dict."""
-        opts = config.connectors[connector].options if connector in config.connectors else {}
+        opts = cfg.connectors[connector].options if connector in cfg.connectors else {}
         targets = [str(t) for t in (opts.get(plural_key) or [])]
         labels: dict = opts.get("labels", {})
         if target:
@@ -303,6 +312,13 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                     "hint": "pass the explicit id/url instead"}
         return {"error": "pass either brand= or an explicit target",
                 "available": {t: labels.get(t, t) for t in targets}}
+
+    # exposed for tests - proves config.yaml edits made after build_mcp() take
+    # effect immediately (the config-reload fix), without needing real
+    # Google credentials to exercise query_ga4_live/query_gsc_live directly
+    mcp._cfg = _cfg  # type: ignore[attr-defined]
+    mcp._identity_for = _identity_for  # type: ignore[attr-defined]
+    mcp._resolve_target = _resolve_target  # type: ignore[attr-defined]
 
     @mcp.tool()
     def query_ga4_live(dimensions: list[str], metrics: list[str],
@@ -322,11 +338,12 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
 
             from hub.connectors.google_auth import get_credentials
 
-            target = _resolve_target("ga4", "property_ids", property_id, brand)
+            cfg = _cfg()
+            target = _resolve_target(cfg, "ga4", "property_ids", property_id, brand)
             if isinstance(target, dict):
                 return target
-            creds = get_credentials(config.secrets_dir,
-                                    identity=_identity_for("ga4", target))
+            creds = get_credentials(cfg.secrets_dir,
+                                    identity=_identity_for(cfg, "ga4", target))
             client = BetaAnalyticsDataClient(credentials=creds)
             response = client.run_report(RunReportRequest(
                 property=f"properties/{target}",
@@ -359,11 +376,12 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
 
             from hub.connectors.google_auth import get_credentials
 
-            target = _resolve_target("gsc", "site_urls", site_url, brand)
+            cfg = _cfg()
+            target = _resolve_target(cfg, "gsc", "site_urls", site_url, brand)
             if isinstance(target, dict):
                 return target
-            creds = get_credentials(config.secrets_dir,
-                                    identity=_identity_for("gsc", target))
+            creds = get_credentials(cfg.secrets_dir,
+                                    identity=_identity_for(cfg, "gsc", target))
             service = build("searchconsole", "v1", credentials=creds,
                             cache_discovery=False)
             resp = service.searchanalytics().query(siteUrl=target, body={
@@ -388,7 +406,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         try:
             from hub.connectors.google_auth import list_identities as _idents
 
-            return {"identities": _idents(config.secrets_dir),
+            return {"identities": _idents(_cfg().secrets_dir),
                     "add_more": "run in a terminal: hub login <name>"}
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
@@ -405,8 +423,9 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             from hub.connectors.google_auth import get_credentials
             from hub.core.accounts import annotate_configured, discover_all
 
-            creds = get_credentials(config.secrets_dir, identity=identity)
-            return annotate_configured(discover_all(creds, source), config)
+            cfg = _cfg()
+            creds = get_credentials(cfg.secrets_dir, identity=identity)
+            return annotate_configured(discover_all(creds, source), cfg)
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
@@ -425,7 +444,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             from hub.core.accounts import add_accounts as _add
             from hub.core.accounts import discover_all
 
-            creds = get_credentials(config.secrets_dir, identity=identity)
+            creds = get_credentials(_cfg().secrets_dir, identity=identity)
             visible = {a["id"]: a for a in discover_all(creds, source)}
             unknown = [i for i in account_ids if i not in visible]
             if unknown:
@@ -433,15 +452,8 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                         "hint": "use ids exactly as returned by list_available_accounts"}
             added = _add(config_path, source,
                          [visible[i] for i in account_ids], identity=identity)
-            # keep the in-memory config consistent for later calls this session
-            # (a brand-new connector block only exists in the file; the running
-            # server picks it up because trigger_sync re-reads config.yaml)
-            if source in config.connectors:
-                for i in added:
-                    config.connectors[source].options.setdefault(
-                        "property_ids" if source == "ga4" else "site_urls", []).append(i)
-                    config.connectors[source].options.setdefault("labels", {})[i] = \
-                        visible[i].get("name", i)
+            # no in-memory patching needed - every tool call reloads config.yaml
+            # fresh (_cfg()), so the file write above is immediately visible
             return {"added": added,
                     "skipped_already_configured":
                         [i for i in account_ids if i not in added],
