@@ -153,6 +153,17 @@ def test_ga4_reports_cover_analyst_needs():
         assert not any("rate" in s.name.lower() for s in reg.metrics())
 
 
+def test_landing_pages_carries_new_users():
+    """'how many NEW users landed on this specific page' was previously
+    unanswerable from synced data - users existed but not new_users."""
+    reg = GA4_REPORTS["landing_pages"]
+    assert "new_users" in reg.names()
+    spec = next(s for s in reg.specs if s.name == "new_users")
+    assert spec.native == "newUsers"
+    assert spec.dimension is False  # additive metric, not a new dimension -
+    # adding a dimension would change every existing row's granularity
+
+
 def test_gsc_reports_cover_analyst_needs():
     assert {"queries", "pages", "devices", "countries"} <= set(GSC_REPORTS)
     assert "query" in GSC_REPORTS["queries"].names()

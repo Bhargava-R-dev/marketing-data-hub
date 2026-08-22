@@ -39,6 +39,10 @@ GA4_REPORTS: dict[str, FieldRegistry] = {
         FieldSpec("channel", "sessionDefaultChannelGroup", dimension=True),
         FieldSpec("sessions", "sessions"),
         FieldSpec("users", "totalUsers"),
+        FieldSpec("new_users", "newUsers",
+                 description="first-time visitors whose session landed on this "
+                             "page - answers 'how many NEW users landed here', "
+                             "not just total users"),
         FieldSpec("conversions", "keyEvents"),
         FieldSpec("engaged_sessions", "engagedSessions"),
     ], description="entry-page performance per channel (top organic landing pages, "
