@@ -33,6 +33,24 @@ GA4_REPORTS: dict[str, FieldRegistry] = {
                   description="engagement rate = engaged_sessions / sessions"),
         FieldSpec("pageviews", "screenPageViews"),
     ], description="traffic mix by acquisition channel (organic vs paid vs direct...)"),
+    "sources": FieldRegistry([
+        FieldSpec("date", "date", dimension=True),
+        FieldSpec("source", "sessionSource", dimension=True,
+                 description="literal traffic source, e.g. 'qr-codes.io', "
+                             "'google', 'facebook.com' - not a grouping"),
+        FieldSpec("medium", "sessionMedium", dimension=True,
+                 description="e.g. 'referral', 'organic', 'cpc'"),
+        FieldSpec("sessions", "sessions"),
+        FieldSpec("new_users", "newUsers"),
+        FieldSpec("engaged_sessions", "engagedSessions"),
+        FieldSpec("conversions", "keyEvents"),
+    ], description="EXACT literal source/medium, not GA4's channel grouping "
+                   "(see 'channels'). Use this for 'traffic from X specifically' "
+                   "(a QR code, one referral domain, one campaign source) - "
+                   "'channels' Referral/Organic buckets multiple actual sources "
+                   "together and will over- or under-count a single named source. "
+                   "This was the exact cause of an analysis reporting QR traffic "
+                   "that didn't reconcile: 'Referral' channel != source='qr-codes.io'."),
     "landing_pages": FieldRegistry([
         FieldSpec("date", "date", dimension=True),
         FieldSpec("landing_page", "landingPagePlusQueryString", dimension=True),

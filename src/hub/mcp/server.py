@@ -270,8 +270,18 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         source= when using a non-core report):
         - overall trends / totals -> report="core" (default; the only report
           whose GSC numbers are exact totals)
-        - traffic mix, organic vs paid -> source="ga4", report="channels"
-        - landing-page / entry-page analysis -> source="ga4", report="landing_pages"
+        - traffic mix, organic vs paid (broad groupings) -> source="ga4",
+          report="channels" — NOTE: "channels" groups multiple real sources
+          together (e.g. Referral bundles every referring domain). For a
+          SPECIFIC named source (a QR code, one referral domain, one
+          campaign) use report="sources" instead with filters={"source": ...}
+          — comparing a channels number against a literal source (or vice
+          versa) is comparing two different things and won't reconcile.
+        - one specific literal source/medium (not a channel group), e.g.
+          "traffic from qr-codes.io" -> source="ga4", report="sources",
+          filters={"source": "qr-codes.io"}
+        - landing-page / entry-page analysis, incl. new users per page ->
+          source="ga4", report="landing_pages"
         - page behaviour (views, engagement) -> source="ga4", report="pages"
         - device / country segmentation -> source="ga4", report="audience"
           (or source="gsc", report="devices"/"countries" for search data)
