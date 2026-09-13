@@ -250,8 +250,15 @@ function sync() {
         <button class="btn primary" id="toClaude" onclick="go(4)" disabled>Continue →</button>
       </div>
     </div>`;
+  let autoStarted = false;
   const tick = async () => {
     const s = await api("/api/sync/status");
+    if (!s.in_progress && !s.run && !autoStarted) {
+      // landed here with accounts configured but nothing ever synced: just go
+      autoStarted = true;
+      await api("/api/sync", {method: "POST"});
+      return;
+    }
     const accts = s.run?.accounts || [];
     const doneN = accts.filter(a => a.status === "done" || a.status === "error").length;
     $("bar").style.width = accts.length ? `${Math.round(100 * doneN / accts.length)}%` : "0%";

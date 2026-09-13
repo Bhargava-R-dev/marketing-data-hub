@@ -185,3 +185,16 @@ def test_remove_accounts_drops_ids_labels_and_identity_maps(tmp_path):
     assert "'1'" not in text and "A" not in text
     assert "'2'" in text and "B" in text
     assert remove_accounts(cfg, "gsc", ["x"]) == []
+
+
+def test_remap_identity_rewrites_or_drops_mappings(tmp_path):
+    from hub.core.accounts import add_accounts, remap_identity
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("connectors: {}\n", encoding="utf-8")
+    add_accounts(cfg, "ga4", [{"id": "1", "name": "A"}], identity="account2")
+    add_accounts(cfg, "gsc", [{"id": "https://x/", "name": "X"}], identity="account2")
+    assert remap_identity(cfg, "account2", "personal") == 2
+    assert "personal" in cfg.read_text(encoding="utf-8")
+    assert remap_identity(cfg, "personal", "default") == 2
+    assert "identities" not in cfg.read_text(encoding="utf-8") or "personal" not in cfg.read_text(encoding="utf-8")
+    assert remap_identity(cfg, "nobody", "default") == 0

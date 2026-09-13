@@ -143,6 +143,9 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
                 # produce a second, identical login in the picker
                 merged = merge_duplicate_identity(c.secrets_dir, identity)
                 if merged != identity:
+                    from hub.core.accounts import remap_identity
+
+                    remap_identity(config_path, identity, merged)
                     login_threads.pop(identity, None)
                     discovery_cache.clear()  # the refreshed token may see more
             except Exception as exc:  # noqa: BLE001 - surfaced via /api/state, not swallowed
@@ -256,6 +259,8 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
             return {"in_progress": run["finished_at"] is None, "run": run}
         # no progress file yet (never synced, or an older version): fall back
         c = cfg()
+        if not Path(c.db_path).exists():
+            return {"in_progress": False, "run": None}  # brand-new hub, nothing ran yet
         try:
             conn = duckdb.connect(c.db_path, read_only=True)
             rows = conn.execute(

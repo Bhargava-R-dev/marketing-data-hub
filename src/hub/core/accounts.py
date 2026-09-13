@@ -259,3 +259,29 @@ def remove_accounts(config_path: str | Path, source: str, ids: list[str]) -> lis
             opts.get(key, {}).pop(i, None)
     yaml.dump(data, config_path.open("w", encoding="utf-8"))
     return removed
+
+
+def remap_identity(config_path: str | Path, old: str, new: str) -> int:
+    """Point every account mapped to identity `old` at `new` instead (used when
+    two logins turn out to be the same Google account). 'default' mappings are
+    implicit, so remapping to default removes the entry. Returns count changed."""
+    config_path = Path(config_path)
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.width = 4096
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    data = yaml.load(config_path.read_text(encoding="utf-8")) or {}
+    changed = 0
+    for conn in (data.get("connectors") or {}).values():
+        idents = (conn or {}).get("options", {}).get("identities") or {}
+        for acct, ident in list(idents.items()):
+            if ident != old:
+                continue
+            if new == "default":
+                idents.pop(acct)
+            else:
+                idents[acct] = new
+            changed += 1
+    if changed:
+        yaml.dump(data, config_path.open("w", encoding="utf-8"))
+    return changed
