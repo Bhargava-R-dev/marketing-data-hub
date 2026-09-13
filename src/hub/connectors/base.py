@@ -87,6 +87,9 @@ class BaseConnector(ABC):
     def __init__(self, settings: ConnectorSettings, secrets_dir: str | Path):
         self.settings = settings
         self.secrets_dir = Path(secrets_dir)
+        # optional (account_id, label, rows_this_report) hook the sync engine
+        # sets so per-account progress can be shown live
+        self.progress = None
 
     @classmethod
     def get_reports(cls) -> dict[str, FieldRegistry]:

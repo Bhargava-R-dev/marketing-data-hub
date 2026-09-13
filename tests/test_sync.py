@@ -91,3 +91,32 @@ def test_backfill_chunks():
     # chunks cover the range with no gaps/overlaps
     for (a, b), (c, d) in zip(chunks, chunks[1:]):
         assert (c - b).days == 1
+
+
+def test_run_sync_forwards_progress_callback(tmp_path, store):
+    from hub.core.progress import SyncProgress
+
+    class ProgressConnector(FakeConnector):
+        def extract(self, date_from, date_to):
+            if self.progress:
+                self.progress("a", "Acct A", 3)
+            return super().extract(date_from, date_to)
+
+    progress = SyncProgress(tmp_path / "p.json")
+    progress.begin([{"source": "fake", "account_id": "a", "label": "Acct A",
+                     "identity": "default"}])
+    conn = ProgressConnector()
+    run_sync(store, conn, progress=progress)
+    state = SyncProgress.read(tmp_path / "p.json")
+    assert state["accounts"][0]["status"] == "done"
+    assert state["accounts"][0]["rows"] == 3 * len(conn.enabled_reports())
+
+
+def test_run_sync_marks_source_error_in_progress(tmp_path, store):
+    from hub.core.progress import SyncProgress
+
+    progress = SyncProgress(tmp_path / "p.json")
+    progress.begin([{"source": "fake", "account_id": "a", "label": "A", "identity": "default"}])
+    with pytest.raises(RuntimeError):
+        run_sync(store, FakeConnector(fail_times=5), progress=progress, retries=1)
+    assert SyncProgress.read(tmp_path / "p.json")["accounts"][0]["status"] == "error"

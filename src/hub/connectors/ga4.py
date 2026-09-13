@@ -171,9 +171,11 @@ class GA4Connector(BaseConnector):
         for identity, property_ids in self._groups.items():
             client = BetaAnalyticsDataClient(credentials=self._creds[identity])
             for property_id in property_ids:
-                results.extend(self._fetch(
-                    client, registry, n2u, property_id, labels.get(property_id),
-                    date_from, date_to))
+                rows = self._fetch(client, registry, n2u, property_id,
+                                   labels.get(property_id), date_from, date_to)
+                results.extend(rows)
+                if self.progress:
+                    self.progress(property_id, labels.get(property_id, property_id), len(rows))
         return results
 
     def _fetch(self, client, registry: FieldRegistry, n2u: dict,

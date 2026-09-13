@@ -36,24 +36,38 @@ def _sources_to_sync(source: str, config: HubConfig) -> list[str]:
 
 @app.command()
 def sync(source: str = typer.Argument("all"), config: str = CONFIG_OPT,
-         window: int | None = typer.Option(None, help="Override window_days")):
+         window: int | None = typer.Option(None, help="Override window_days"),
+         unattended: bool = typer.Option(
+             False, "--unattended",
+             help="Never open a browser; fail fast if re-consent is needed "
+                  "(for scheduled runs)")):
     """Sync one connector (or 'all') over its rolling window."""
+    import os
+
     from hub.connectors.catalog import build_connector
+    from hub.core.progress import SyncProgress, configured_accounts, progress_path
     from hub.core.storage import Storage
     from hub.core.sync import run_sync
 
+    if unattended:
+        os.environ["HUB_UNATTENDED"] = "1"
     cfg = _load(config)
     storage = Storage(cfg.db_path)
     failures = 0
-    for src in _sources_to_sync(source, cfg):
+    sources = _sources_to_sync(source, cfg)
+    progress = SyncProgress(progress_path(cfg))
+    progress.begin(configured_accounts(cfg, sources))
+    for src in sources:
         try:
             connector = build_connector(src, cfg)
             days = window or cfg.connectors[src].window_days
-            n = run_sync(storage, connector, window_days=days)
+            n = run_sync(storage, connector, window_days=days, progress=progress)
             typer.echo(f"[OK] {src}: {n} rows")
         except Exception as exc:  # noqa: BLE001
             typer.echo(f"[FAIL] {src}: {exc}")
+            progress.source_error(src, str(exc))
             failures += 1
+    progress.finish()
     try:
         _run_exports(cfg, storage)
     except Exception as exc:  # noqa: BLE001

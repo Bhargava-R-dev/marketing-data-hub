@@ -5,13 +5,15 @@ from datetime import date, timedelta
 
 from hub.connectors.base import AuthError, BaseConnector
 from hub.core.normalizer import normalize
+from hub.core.progress import SyncProgress
 from hub.core.reconcile import find_over_counts
 from hub.core.storage import Storage
 
 
 def run_sync(storage: Storage, connector: BaseConnector,
              date_from: date | None = None, date_to: date | None = None,
-             window_days: int = 30, retries: int = 3) -> int:
+             window_days: int = 30, retries: int = 3,
+             progress: SyncProgress | None = None) -> int:
     """Sync one connector over a date range (default: rolling window ending today).
 
     Re-fetches and transactionally replaces the whole window because ad platforms
@@ -19,6 +21,10 @@ def run_sync(storage: Storage, connector: BaseConnector,
     date_to = date_to or date.today()
     date_from = date_from or date_to - timedelta(days=window_days)
     run_id = storage.start_sync(connector.id, date_from, date_to)
+    if progress is not None:
+        n_reports = len(connector.enabled_reports())
+        connector.progress = lambda aid, label, rows: progress.account_update(
+            connector.id, aid, rows, n_reports)
     last_exc: Exception | None = None
     for attempt in range(max(1, retries)):
         try:
@@ -54,12 +60,16 @@ def run_sync(storage: Storage, connector: BaseConnector,
             # the interactive consent flow — fail fast with the hint attached
             storage.finish_sync(run_id, 0, "error",
                                 error=f"{exc} {exc.hint}".strip())
+            if progress is not None:
+                progress.source_error(connector.id, f"{exc} {exc.hint}".strip())
             raise
         except Exception as exc:  # noqa: BLE001 - anything from an API is retryable
             last_exc = exc
             if attempt < retries - 1:
                 time.sleep(2 ** (attempt + 1))
     storage.finish_sync(run_id, 0, "error", error=str(last_exc))
+    if progress is not None:
+        progress.source_error(connector.id, str(last_exc))
     raise last_exc  # type: ignore[misc]
 
 

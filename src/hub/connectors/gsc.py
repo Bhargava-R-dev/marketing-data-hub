@@ -142,4 +142,6 @@ class SearchConsoleConnector(BaseConnector):
             if report == "queries" and brand_terms.get(site_url):
                 tag_branded(site_rows, brand_terms[site_url])
             results.extend(site_rows)
+            if self.progress:
+                self.progress(site_url, labels.get(site_url, site_url), len(site_rows))
         return results
