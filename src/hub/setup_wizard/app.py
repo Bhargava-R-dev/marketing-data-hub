@@ -106,10 +106,10 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
         identity = (body.get("identity") or "").strip() or _next_identity_slug(c.secrets_dir)
         if identity in login_threads and login_threads[identity].is_alive():
             return {"status": "already_running"}
-        client = Path(c.secrets_dir) / "google_client.json"
-        if not client.exists():
-            return {"error": f"Google sign-in file missing: put google_client.json "
-                             f"in {c.secrets_dir}"}
+        from hub.connectors.google_auth import client_file_for
+        if client_file_for(c.secrets_dir) is None:
+            return {"error": "No Google sign-in file found. Reinstall, or place your own "
+                             f"google_client.json in {c.secrets_dir}"}
 
         login_errors.pop(identity, None)  # clear any previous failure on retry
 

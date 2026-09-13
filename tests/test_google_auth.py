@@ -403,3 +403,38 @@ def test_base_scopes_exclude_optional_connectors():
     ]
     assert YOUTUBE_SCOPE == "https://www.googleapis.com/auth/yt-analytics.readonly"
     assert GOOGLE_ADS_SCOPE == "https://www.googleapis.com/auth/adwords"
+
+
+def test_client_file_prefers_users_own(tmp_path):
+    from hub.connectors.google_auth import client_file_for
+
+    own = tmp_path / "google_client.json"
+    own.write_text("{}", encoding="utf-8")
+    assert client_file_for(tmp_path) == own
+
+
+def test_client_file_falls_back_to_bundled(tmp_path, monkeypatch):
+    from hub.connectors import google_auth
+
+    bundled = tmp_path / "bundled" / "google_client.json"
+    bundled.parent.mkdir()
+    bundled.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(google_auth, "BUNDLED_CLIENT", bundled)
+    assert google_auth.client_file_for(tmp_path / "empty-secrets") == bundled
+
+
+def test_real_bundled_client_ships_in_package():
+    from pathlib import Path
+
+    import hub.connectors.google_auth as ga
+
+    # conftest redirects BUNDLED_CLIENT during tests; check the shipped file itself
+    real = Path(ga.__file__).resolve().parent.parent / "resources" / "google_client.json"
+    assert json.loads(real.read_text(encoding="utf-8")).get("installed")
+
+
+def test_client_file_none_when_neither(tmp_path, monkeypatch):
+    from hub.connectors import google_auth
+
+    monkeypatch.setattr(google_auth, "BUNDLED_CLIENT", tmp_path / "missing.json")
+    assert google_auth.client_file_for(tmp_path) is None

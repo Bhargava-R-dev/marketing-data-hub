@@ -24,6 +24,20 @@ GOOGLE_SCOPES = [
 YOUTUBE_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly"
 GOOGLE_ADS_SCOPE = "https://www.googleapis.com/auth/adwords"
 
+# Desktop-app OAuth clients are not confidential (Google's own guidance);
+# shipping ours means a new user never touches Google Cloud Console.
+BUNDLED_CLIENT = Path(__file__).resolve().parent.parent / "resources" / "google_client.json"
+
+
+def client_file_for(secrets_dir: str | Path) -> Path | None:
+    """The user's own client file wins; otherwise the bundled one; else None."""
+    own = Path(secrets_dir) / "google_client.json"
+    if own.exists():
+        return own
+    if BUNDLED_CLIENT.exists():
+        return BUNDLED_CLIENT
+    return None
+
 _LABELS_FILE = "identity_labels.json"
 # an unattended run (the daily scheduled sync) has nobody to complete a
 # browser consent flow - without a bound, a token needing re-consent hangs
@@ -163,7 +177,7 @@ def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
     secrets_dir = Path(secrets_dir)
     scopes = scopes or GOOGLE_SCOPES
     token_path = token_path_for(secrets_dir, identity)
-    client_path = secrets_dir / "google_client.json"
+    client_path = client_file_for(secrets_dir)
 
     diagnostic_hint = None
     if token_path.exists():
@@ -191,12 +205,12 @@ def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
             if "invalid_grant" in str(exc):
                 diagnostic_hint = _INVALID_GRANT_HINT
 
-    if not client_path.exists():
+    if client_path is None:
         raise AuthError(
             "No Google credentials found.",
             hint=("Create an OAuth client (Desktop app) in Google Cloud Console under "
                   "APIs & Services > Credentials, download the JSON, and save it as "
-                  f"{client_path}. Then run: hub doctor"
+                  f"{secrets_dir / 'google_client.json'}. Then run: hub doctor"
                   " If this worked before, delete the token file and re-authorize."))
 
     return login(secrets_dir, identity=identity, scopes=scopes,
@@ -305,11 +319,11 @@ def login(secrets_dir: str | Path, identity: str | None = None,
 
     secrets_dir = Path(secrets_dir)
     scopes = scopes or GOOGLE_SCOPES
-    client_path = secrets_dir / "google_client.json"
-    if not client_path.exists():
+    client_path = client_file_for(secrets_dir)
+    if client_path is None:
         raise AuthError(
             "No Google OAuth client found.",
-            hint=f"Save your OAuth client JSON as {client_path} first.")
+            hint=f"Save your OAuth client JSON as {secrets_dir / 'google_client.json'} first.")
 
     flow = InstalledAppFlow.from_client_secrets_file(str(client_path), scopes)
     server = _build_callback_server()

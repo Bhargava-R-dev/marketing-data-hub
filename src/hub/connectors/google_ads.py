@@ -64,8 +64,8 @@ class GoogleAdsConnector(BaseConnector):
         # reuses the hub's Google OAuth token (adwords scope is already granted);
         # options.identity picks which login if you have several
         token_path = token_path_for(self.secrets_dir, opts.get("identity"))
-        client_path = self.secrets_dir / "google_client.json"
-        if not token_path.exists() or not client_path.exists():
+        client_path = google_auth.client_file_for(self.secrets_dir)
+        if not token_path.exists() or client_path is None:
             raise AuthError(
                 "Google OAuth files missing.",
                 hint=f"Run a sync of ga4/gsc first (or 'hub login') to create {token_path.name}.")

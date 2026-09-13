@@ -4,6 +4,7 @@ secrets/
 *.json.key
 google_token.json
 google_client.json
+!src/hub/resources/google_client.json
 
 # --- personal config & data (each user has their own) ---
 config.yaml
@@ -20,3 +21,4 @@ __pycache__/
 venv/
 .pytest_cache/
 dist/
+.gstack/
