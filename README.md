@@ -9,8 +9,9 @@ subscription, your tokens never leave your computer.
 ## Quick start
 
 **Windows:** download the installer from
-<https://growthbybhargava.com/tools/marketing-data-hub> and run it — the setup
-page opens in your browser.
+<https://growthbybhargava.com/tools/marketing-data-hub> (direct link:
+[MarketingDataHub-Setup.exe](https://github.com/Bhargava-R-dev/marketing-data-hub/releases/latest/download/MarketingDataHub-Setup.exe))
+and run it — the setup page opens in your browser.
 
 **Anywhere with Python 3.11+:**
 
