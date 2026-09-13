@@ -39,7 +39,13 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
     login_threads: dict[str, threading.Thread] = {}
     login_errors: dict[str, str] = {}
     discovery_cache: dict[tuple[str, str], list[dict]] = {}
-    state = {"shutdown": False}
+    state = {"shutdown": False, "last_seen": time.time()}
+    app.state.hub = state  # run_setup watches last_seen to exit when idle
+
+    @app.middleware("http")
+    async def _touch(request: Request, call_next):
+        state["last_seen"] = time.time()
+        return await call_next(request)
 
     def cfg():
         return load_config(config_path)
@@ -234,10 +240,12 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
     def _sync_argv() -> tuple[str, list[str]]:
         # --unattended: a dead token must show up as an error row in the Sync
         # step, never as a surprise browser tab opened by a background process
+        from hub.core.paths import python_exe
+
         args = ["sync", "all", "--unattended", "--config", str(config_path)]
         if getattr(sys, "frozen", False):
             return sys.executable, args
-        return sys.executable, ["-m", "hub.cli", *args]
+        return python_exe(), ["-m", "hub.cli", *args]
 
     @app.post("/api/sync")
     def post_sync(request: Request) -> dict:
@@ -329,6 +337,16 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             return {"installed": False, "error": str(exc)}
 
+    @app.post("/api/shortcut")
+    def post_shortcut(request: Request) -> dict:
+        check_token(request)
+        from hub.core import shortcut
+
+        try:
+            return shortcut.create_shortcuts(config_path)
+        except Exception as exc:  # noqa: BLE001
+            return {"created": [], "error": str(exc)}
+
     # ---- shutdown --------------------------------------------------------
     @app.post("/api/shutdown")
     def post_shutdown(request: Request) -> dict:
@@ -347,13 +365,32 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
 
 
 def run_setup(config_path: str | Path, port: int = 8770,
-              open_browser: bool = True) -> None:
-    """Serve the wizard on localhost and open it in the default browser."""
+              open_browser: bool = True, idle_minutes: int = 15) -> None:
+    """Serve the wizard on localhost and open it in the default browser.
+    Exits on its own after idle_minutes without any page activity, so a
+    shortcut launch (no console) never leaves a stray process behind."""
+    import os
+
+    if sys.stdout is None or sys.stderr is None:
+        # launched from a shortcut via pythonw.exe: no console at all. uvicorn's
+        # log handlers need a real stream, so keep everything in a log file
+        log_dir = Path(config_path).resolve().parent / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stream = open(log_dir / "wizard.log", "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+        sys.stdout = sys.stderr = stream
+
     import uvicorn
 
     app = create_setup_app(config_path)
     url = f"http://127.0.0.1:{port}"
     if open_browser:
         threading.Timer(1.0, webbrowser.open, args=[url]).start()
+    if idle_minutes > 0:
+        def watchdog():
+            while True:
+                time.sleep(30)
+                if time.time() - app.state.hub["last_seen"] > idle_minutes * 60:
+                    os._exit(0)
+        threading.Thread(target=watchdog, daemon=True).start()
     print(f"Setup wizard: {url}  (Ctrl+C to stop)")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

@@ -506,5 +506,18 @@ def schedule(config: str = CONFIG_OPT,
         typer.echo(result["cron_line"])
 
 
+@app.command()
+def shortcut(config: str = CONFIG_OPT):
+    """Put a 'Marketing Data Hub' icon on the Desktop and Start Menu that
+    opens the hub page with no command window (Windows)."""
+    from hub.core.shortcut import create_shortcuts
+
+    result = create_shortcuts(_resolve(config))
+    for path in result["created"]:
+        typer.echo(f"[OK] {path}")
+    if result.get("hint"):
+        typer.echo(result["hint"])
+
+
 if __name__ == "__main__":
     app()

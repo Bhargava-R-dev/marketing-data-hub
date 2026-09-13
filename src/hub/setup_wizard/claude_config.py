@@ -14,9 +14,11 @@ SERVER_NAME = "marketing-hub"
 
 
 def mcp_command(config_path: Path) -> tuple[str, list[str]]:
+    from hub.core.paths import python_exe
+
     if getattr(sys, "frozen", False):  # PyInstaller build: hub.exe
         return sys.executable, ["mcp", "--config", str(config_path)]
-    return sys.executable, ["-m", "hub.cli", "mcp", "--config", str(config_path)]
+    return python_exe(), ["-m", "hub.cli", "mcp", "--config", str(config_path)]
 
 
 def desktop_config_candidates() -> list[Path]:

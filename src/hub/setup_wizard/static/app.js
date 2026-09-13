@@ -309,27 +309,39 @@ async function connectClaude(target) {
 
 // ----------------------------------------------------------------- 6 done
 async function done() {
-  const rows = (S.last_run?.accounts || []).reduce((n, a) => n + (a.rows || 0), 0);
+  const run = S.last_run;
+  const rows = (run?.accounts || []).reduce((n, a) => n + (a.rows || 0), 0);
+  const when = run?.finished_at ? new Date(run.finished_at).toLocaleString() : "never";
+  const failed = (run?.accounts || []).filter(a => a.status === "error").length;
   $("view").innerHTML = `
     <div class="card">
-      <h1>You're all set ✓</h1>
+      <h1>Marketing Data Hub</h1>
+      <p class="muted">This is your home page — it opens from the desktop icon. Everything below is one click.</p>
       <div class="summary-grid">
         <div><b>${configuredCount()}</b>accounts syncing</div>
-        <div><b>${rows.toLocaleString()}</b>rows loaded</div>
+        <div><b>${rows.toLocaleString()}</b>rows in last sync</div>
         <div><b>${S.claude_registered ? "✓" : "–"}</b>Claude connected</div>
         <div><b id="schedTxt">…</b>daily sync</div>
       </div>
-      <p class="muted">Your data refreshes every morning at 6:00 (the laptop just needs to be on at some point that day).
-         Run the setup again any time to add accounts or check progress.</p>
+      <p class="muted">Last sync: ${esc(when)}${failed ? ` — <span class="err">${failed} account(s) failed</span>` : ""}.
+         Data refreshes every morning at 6:00 (the laptop just needs to be on at some point that day).</p>
       <div class="actions">
         <button class="btn primary" onclick="window.open('/dashboard','_blank')">Open dashboard ↗</button>
-        <button class="btn" onclick="go(2)">Add more accounts</button>
-        <button class="btn" onclick="finish()">Close setup</button>
+        <button class="btn" onclick="go(2)">Add / remove accounts</button>
+        <button class="btn" onclick="startSyncFlow()">Sync now</button>
+        <button class="btn" onclick="go(1)">Google logins</button>
+        <button class="btn" onclick="go(4)">Claude</button>
       </div>
+      <p class="muted" id="shortcutMsg" style="margin-top:1rem"></p>
+      <div class="actions"><button class="btn" onclick="finish()">Close</button></div>
     </div>`;
   const r = await api("/api/schedule", {method: "POST"});
   $("schedTxt").textContent = r.installed ? "06:00" : (r.cron_line ? "manual (cron)" : "not set");
   if (r.error) $("schedTxt").title = r.error;
+  const sc = await api("/api/shortcut", {method: "POST"});
+  $("shortcutMsg").innerHTML = sc.created?.length
+    ? `A <b>Marketing Data Hub</b> icon is on your Desktop and Start Menu — use it to come back here.`
+    : sc.error ? `<span class="err">${esc(sc.error)}</span>` : esc(sc.hint || "");
 }
 async function finish() {
   await api("/api/shutdown", {method: "POST"});

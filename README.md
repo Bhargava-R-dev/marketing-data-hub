@@ -24,7 +24,10 @@ and `pip install -e ".[dev]"` instead.)
 
 The setup page walks you through: sign in to Google → tick the GA4 properties /
 Search Console sites you want → watch the first sync load, account by account →
-connect Claude (one click) → done, with the daily 6am sync scheduled for you.
+connect Claude (one click) → done, with the daily 6am sync scheduled for you and
+a **Marketing Data Hub** icon on your Desktop / Start Menu. That icon is the
+everyday entry point: add or remove accounts, sync now, open the dashboard —
+no command window (`hub shortcut` recreates it).
 
 Your hub lives in `%LOCALAPPDATA%\MarketingDataHub` (Windows) or
 `~/.marketing-data-hub` (Mac/Linux); nothing to configure. A `config.yaml` in

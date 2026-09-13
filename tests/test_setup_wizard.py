@@ -301,3 +301,19 @@ def test_schedule_endpoint(wizard, monkeypatch):
 def test_static_assets_served(wizard):
     client, _, _ = wizard
     assert client.get("/static/app.js").status_code == 200
+
+
+def test_shortcut_endpoint(wizard, monkeypatch):
+    client, h, _ = wizard
+    monkeypatch.setattr("hub.core.shortcut.create_shortcuts",
+                        lambda path=None: {"created": ["C:/Desktop/Marketing Data Hub.lnk"]})
+    assert client.post("/api/shortcut", headers=h).json()["created"]
+
+
+def test_requests_touch_last_seen(wizard):
+    client, h, _ = wizard
+    before = client.app.state.hub["last_seen"]
+    import time
+    time.sleep(0.01)
+    client.get("/api/version", headers=h)
+    assert client.app.state.hub["last_seen"] > before

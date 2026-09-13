@@ -222,8 +222,10 @@ This is what lets you *ask questions*.
 
 ### Step 12 — Done
 
-The last step shows a summary and schedules the **daily 6am refresh** for you.
-Click **"Open dashboard"** to see your data, or **"Close setup."** You can
+The last step is your **home page**: it schedules the **daily 6am refresh**
+and puts a **"Marketing Data Hub"** icon on your Desktop and Start Menu. From
+now on, double-click that icon to come back here — add or remove accounts,
+**Sync now**, or **Open dashboard** — with no command window at all. You can
 close the browser tab and the command window now.
 
 **You're done.** 🎉

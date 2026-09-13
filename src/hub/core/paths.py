@@ -15,6 +15,15 @@ _DEFAULT_CONFIG = (
 )
 
 
+def python_exe() -> str:
+    """The console interpreter, even when we were launched by pythonw.exe
+    (a shortcut): child processes that talk over stdio (MCP, sync) need it."""
+    exe = sys.executable
+    if exe.lower().endswith("pythonw.exe"):
+        return exe[:-len("pythonw.exe")] + "python.exe"
+    return exe
+
+
 def default_home() -> Path:
     override = os.environ.get(HOME_ENV)
     if override:
