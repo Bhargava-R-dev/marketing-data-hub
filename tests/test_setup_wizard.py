@@ -29,7 +29,8 @@ def test_page_serves_and_embeds_config_path(wizard):
     client, _, cfg = wizard
     page = client.get("/").text
     assert "Marketing Data Hub" in page
-    assert "api/state" in page
+    assert "/static/app.js" in page
+    assert 'const TOKEN = "' in page
 
 
 def test_state_requires_token(wizard):
@@ -40,7 +41,7 @@ def test_state_requires_token(wizard):
     assert r.status_code == 200
     body = r.json()
     assert body["connectors"]["gsc"]["accounts"] == [
-        {"id": "https://a.example/", "label": "Site A"}]
+        {"id": "https://a.example/", "label": "Site A", "identity": "default"}]
 
 
 def test_state_reports_identities(wizard, tmp_path):
@@ -103,7 +104,7 @@ def test_accounts_endpoint_filters_by_source(wizard, monkeypatch, tmp_path):
         return []
     monkeypatch.setattr("hub.core.accounts.discover_all", fake_discover)
     r = client.get("/api/accounts", headers=headers, params={"source": "ga4"})
-    assert r.json() == []
+    assert r.json()["accounts"] == []
     assert captured["source"] == "ga4"
 
 
@@ -217,3 +218,86 @@ def test_retrying_connect_clears_previous_error(wizard, monkeypatch, tmp_path):
     client.post("/api/google/connect", headers=headers, json={"identity": "default"})
     body = client.get("/api/state", headers=headers).json()
     assert "default" not in body["login_errors"]
+
+
+def test_accounts_discovery_is_cached_until_refresh(wizard, monkeypatch, tmp_path):
+    client, h, _ = wizard
+    (tmp_path / "secrets").mkdir(exist_ok=True)
+    (tmp_path / "secrets" / "google_token.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("hub.connectors.google_auth.get_credentials", lambda *a, **k: object())
+    calls = []
+    monkeypatch.setattr("hub.core.accounts.discover_all",
+                        lambda creds, source=None: calls.append(source) or [
+                            {"id": "1", "name": "A", "parent": "P"}])
+    client.get("/api/accounts?identity=default&source=ga4&request_id=7", headers=h)
+    r = client.get("/api/accounts?identity=default&source=ga4&request_id=8", headers=h)
+    assert r.json()["request_id"] == "8"
+    assert calls == ["ga4"]
+    client.get("/api/accounts?identity=default&source=ga4&refresh=1", headers=h)
+    assert calls == ["ga4", "ga4"]
+
+
+def test_accounts_remove(wizard):
+    client, h, cfg = wizard
+    r = client.post("/api/accounts/remove", headers=h,
+                    json={"source": "gsc", "ids": ["https://a.example/"]})
+    assert r.json() == {"removed": ["https://a.example/"]}
+    assert "a.example" not in cfg.read_text(encoding="utf-8")
+
+
+def test_sync_status_reads_progress_file(wizard, tmp_path):
+    client, h, cfg = wizard
+    from hub.core.progress import SyncProgress
+    p = SyncProgress(tmp_path / "logs" / "sync_progress.json")
+    p.begin([{"source": "gsc", "account_id": "https://a.example/", "label": "Site A",
+              "identity": "default"}])
+    r = client.get("/api/sync/status", headers=h).json()
+    assert r["in_progress"] is True
+    assert r["run"]["accounts"][0]["label"] == "Site A"
+    p.finish()
+    assert client.get("/api/sync/status", headers=h).json()["in_progress"] is False
+
+
+def test_claude_detect_and_connect(wizard, monkeypatch, tmp_path):
+    client, h, cfg = wizard
+    fake = tmp_path / "claude_desktop_config.json"
+    fake.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("hub.setup_wizard.claude_config.desktop_config_candidates",
+                        lambda: [fake])
+    monkeypatch.setattr("hub.setup_wizard.claude_config.cli_available", lambda: False)
+    d = client.get("/api/claude/detect", headers=h).json()
+    assert d["targets"][0]["label"] == "Claude Desktop"
+    assert d["targets"][0]["registered"] is False
+    r = client.post("/api/claude/connect", headers=h, json={"target": "desktop:0"}).json()
+    assert r["written"] == str(fake)
+    assert "marketing-hub" in fake.read_text(encoding="utf-8")
+    assert client.get("/api/claude/detect", headers=h).json()["targets"][0]["registered"] is True
+
+
+def test_state_exposes_client_source_home_and_version(wizard, monkeypatch, tmp_path):
+    client, h, cfg = wizard
+    monkeypatch.setattr("hub.core.version.latest", lambda: None)
+    s = client.get("/api/state", headers=h).json()
+    assert s["client_source"] in ("bundled", "own", "missing")
+    assert s["home"] == str(tmp_path)
+    assert "current" in s["version"]
+    assert s["claude_registered"] in (True, False)
+
+
+def test_version_endpoint_offline(wizard, monkeypatch):
+    client, h, _ = wizard
+    monkeypatch.setattr("hub.core.version.latest", lambda: None)
+    v = client.get("/api/version", headers=h).json()
+    assert v["latest"] is None and v["update_available"] is False
+
+
+def test_schedule_endpoint(wizard, monkeypatch):
+    client, h, _ = wizard
+    monkeypatch.setattr("hub.core.schedule.install_daily_sync",
+                        lambda path, hour=6: {"installed": True, "task_name": "T", "time": "06:00"})
+    assert client.post("/api/schedule", headers=h).json()["installed"] is True
+
+
+def test_static_assets_served(wizard):
+    client, _, _ = wizard
+    assert client.get("/static/app.js").status_code == 200
