@@ -22,3 +22,5 @@ venv/
 .pytest_cache/
 dist/
 .gstack/
+build/
+packaging/dist/

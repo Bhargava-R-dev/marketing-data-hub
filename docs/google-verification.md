@@ -61,3 +61,12 @@ Do **not** add `yt-analytics.readonly` or `adwords` now — they add review time
 
 - [ ] Sign in once with a fresh Google account to confirm the "unverified app" warning is gone.
 - [ ] Tell Claude Code — the wizard's Welcome copy can then drop the "you may see a warning" note.
+
+## H. PyPI trusted publishing (one time, needed for automated releases)
+
+- [ ] pypi.org → log in → your project `marketing-data-hub` → **Publishing** → *Add a new publisher* (GitHub):
+  - Owner: `Bhargava-R-dev`
+  - Repository: `marketing-data-hub`
+  - Workflow name: `release.yml`
+  - Environment: leave blank
+- [ ] Save. From then on, pushing a `v*` tag publishes the wheel with no token to manage. Until this exists the release workflow's `wheel` job fails (the Windows installer job is independent and still succeeds).
