@@ -438,3 +438,22 @@ def test_client_file_none_when_neither(tmp_path, monkeypatch):
 
     monkeypatch.setattr(google_auth, "BUNDLED_CLIENT", tmp_path / "missing.json")
     assert google_auth.client_file_for(tmp_path) is None
+
+
+def test_non_interactive_get_credentials_raises_instead_of_opening_browser(tmp_path, monkeypatch):
+    import json as _json
+
+    from hub.connectors import google_auth
+
+    (tmp_path / "google_client.json").write_text("{}", encoding="utf-8")
+    # a token with narrower scopes than required forces the re-consent path
+    (tmp_path / "google_token.json").write_text(_json.dumps({
+        "token": "t", "refresh_token": "r", "client_id": "c", "client_secret": "s",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "scopes": ["https://www.googleapis.com/auth/analytics.readonly"]}), encoding="utf-8")
+    monkeypatch.setattr(google_auth, "login",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("login called")))
+    with pytest.raises(AuthError) as exc:
+        google_auth.get_credentials(tmp_path, interactive=False)
+    assert "expired or was revoked" in str(exc.value)
+    assert "Connect Google" in exc.value.hint

@@ -57,8 +57,11 @@ def test_write_entry_creates_file_when_missing(tmp_path):
 def test_is_registered(tmp_path):
     cfg = tmp_path / "c.json"
     assert cc.is_registered(cfg) is False
-    cc.write_mcp_entry(cfg, "python", ["mcp"])
+    cc.write_mcp_entry(cfg, "python", ["mcp", "--config", str(tmp_path / "a.yaml")])
     assert cc.is_registered(cfg) is True
+    assert cc.is_registered(cfg, tmp_path / "a.yaml") is True
+    # an entry for a different hub on the same machine does not count
+    assert cc.is_registered(cfg, tmp_path / "other.yaml") is False
 
 
 def test_detect_lists_targets(monkeypatch, tmp_path):

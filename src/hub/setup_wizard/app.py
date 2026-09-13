@@ -155,7 +155,9 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
 
         key = (identity, source)
         if refresh or key not in discovery_cache:
-            creds = get_credentials(cfg().secrets_dir, identity=identity)
+            # never interactive here: an expired token must surface as an error
+            # the page can act on, not a browser tab opened by a background call
+            creds = get_credentials(cfg().secrets_dir, identity=identity, interactive=False)
             discovery_cache[key] = discover_all(creds, source)
         return discovery_cache[key]
 

@@ -40,12 +40,20 @@ def cli_available() -> bool:
     return shutil.which("claude") is not None
 
 
-def is_registered(config_file: Path) -> bool:
+def is_registered(config_file: Path, config_path: Path | None = None) -> bool:
+    """True when our server entry exists - and, if config_path is given, points
+    at THIS hub (a machine can host several hubs; another hub's entry doesn't
+    count)."""
     try:
         data = json.loads(config_file.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return SERVER_NAME in (data.get("mcpServers") or {})
+    entry = (data.get("mcpServers") or {}).get(SERVER_NAME)
+    if not entry:
+        return False
+    if config_path is None:
+        return True
+    return str(config_path) in [str(a) for a in entry.get("args", [])]
 
 
 def write_mcp_entry(config_file: Path, command: str, args: list[str]) -> Path:
@@ -78,7 +86,7 @@ def register_with_cli(command: str, args: list[str]) -> str:
 def detect(config_path: Path) -> dict:
     command, args = mcp_command(config_path)
     targets = [{"id": f"desktop:{i}", "label": "Claude Desktop", "path": str(p),
-                "registered": is_registered(p)}
+                "registered": is_registered(p, config_path)}
                for i, p in enumerate(desktop_config_candidates())]
     if cli_available():
         targets.append({"id": "cli", "label": "Claude Code (terminal)", "path": "claude",

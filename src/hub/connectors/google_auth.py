@@ -168,6 +168,7 @@ def backfill_identity_labels(secrets_dir: str | Path) -> dict[str, str]:
 
 
 def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
+                    interactive: bool = True,
                     identity: str | None = None):
     """Return google.oauth2 Credentials for one identity (Google login).
     First run for an identity opens a browser consent flow."""
@@ -213,6 +214,15 @@ def get_credentials(secrets_dir: str | Path, scopes: list[str] | None = None,
                   f"{secrets_dir / 'google_client.json'}. Then run: hub doctor"
                   " If this worked before, delete the token file and re-authorize."))
 
+    if not interactive:
+        # callers with their own consent UI (the setup wizard) must never have
+        # a background request silently open a browser and hang on it
+        hint = "Re-authorize this Google account from the Connect Google step."
+        if diagnostic_hint:
+            hint = f"{diagnostic_hint} {hint}"
+        raise AuthError(
+            f"The Google login for {identity or 'default'!r} has expired or was revoked.",
+            hint=hint)
     return login(secrets_dir, identity=identity, scopes=scopes,
                 _diagnostic_hint=diagnostic_hint)
 

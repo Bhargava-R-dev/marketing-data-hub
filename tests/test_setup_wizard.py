@@ -97,7 +97,7 @@ def test_accounts_endpoint_filters_by_source(wizard, monkeypatch, tmp_path):
     (tmp_path / "secrets" / "google_token.json").write_text("{}", encoding="utf-8")
     captured = {}
     monkeypatch.setattr("hub.connectors.google_auth.get_credentials",
-                        lambda sd, scopes=None, identity=None: "creds")
+                        lambda sd, **k: "creds")
 
     def fake_discover(creds, source=None):
         captured["source"] = source
@@ -111,7 +111,7 @@ def test_accounts_endpoint_filters_by_source(wizard, monkeypatch, tmp_path):
 def test_accounts_add_via_wizard(wizard, monkeypatch):
     client, headers, cfg = wizard
     monkeypatch.setattr("hub.connectors.google_auth.get_credentials",
-                        lambda sd, scopes=None, identity=None: "creds")
+                        lambda sd, **k: "creds")
     monkeypatch.setattr("hub.core.accounts.discover_all",
                         lambda creds, source=None: [
                             {"source": "ga4", "id": "777", "name": "New Prop",
@@ -127,7 +127,7 @@ def test_accounts_add_via_wizard(wizard, monkeypatch):
 def test_accounts_add_rejects_unknown_id(wizard, monkeypatch):
     client, headers, _ = wizard
     monkeypatch.setattr("hub.connectors.google_auth.get_credentials",
-                        lambda sd, scopes=None, identity=None: "creds")
+                        lambda sd, **k: "creds")
     monkeypatch.setattr("hub.core.accounts.discover_all",
                         lambda creds, source=None: [])
     r = client.post("/api/accounts/add", headers=headers,

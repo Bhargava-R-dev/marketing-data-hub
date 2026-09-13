@@ -74,7 +74,7 @@ function welcome() {
 function google() {
   const logins = S.identities.map(i => i.needs_reauth
     ? `<span class="pill warn" onclick="connectGoogle('${esc(i.identity)}')">${esc(i.identity)} — click to authorize</span>`
-    : `<span class="pill">✓ ${esc(i.label)}</span>`).join("") || `<span class="muted">none yet</span>`;
+    : `<span class="pill">✓ ${esc(i.label)} <span class="x" title="sign in again (if Google says the login expired)" onclick="connectGoogle('${esc(i.identity)}')">↻</span></span>`).join("") || `<span class="muted">none yet</span>`;
   $("view").innerHTML = `
     <div class="card">
       <h1>Connect Google</h1>
@@ -330,4 +330,5 @@ async function finish() {
 }
 
 // ---------------------------------------------------------------- boot
-(async () => { await refresh(); go(furthestStep()); })();
+// a brand-new hub starts on Welcome; anything already connected resumes where it left off
+(async () => { await refresh(); go(connectedLogins().length ? furthestStep() : 0); })();
