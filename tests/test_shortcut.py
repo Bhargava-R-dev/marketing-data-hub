@@ -48,3 +48,10 @@ def test_create_shortcuts_windows_writes_both(monkeypatch, tmp_path):
 def test_create_shortcuts_posix_gives_hint(monkeypatch):
     monkeypatch.setattr(shortcut.sys, "platform", "darwin")
     assert shortcut.create_shortcuts()["created"] == []
+
+
+def test_launcher_frozen_prefers_gui_exe(monkeypatch, tmp_path):
+    (tmp_path / "MarketingDataHub.exe").write_bytes(b"")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "hub.exe"))
+    assert shortcut.launcher_command() == (str(tmp_path / "MarketingDataHub.exe"), "")
