@@ -267,7 +267,7 @@ function sync() {
     $("syncTable").innerHTML = accts.map(a => `<tr>
       <td>${a.status === "done" ? '<span class="ok">✓</span>' : a.status === "error" ? '<span class="err">✗</span>' : a.status === "running" ? '<span class="spin"></span>' : '<span class="muted">·</span>'}</td>
       <td>${esc(a.label)} <span class="muted">${esc(a.source.toUpperCase())}</span></td>
-      <td class="muted">${a.status === "error" ? `<span class="err">${esc(a.error)}</span>` : a.rows ? a.rows.toLocaleString() + " rows" : a.status}</td></tr>`).join("");
+      <td class="muted">${a.status === "error" ? `<span class="err">${esc(a.error)}</span>` : a.rows ? a.rows.toLocaleString() + " rows" : a.status === "done" ? "no data in the last 30 days" : a.status}</td></tr>`).join("");
     if (!s.in_progress && accts.length) {
       clearInterval(pollTimer); pollTimer = null;
       $("toClaude").disabled = false;

@@ -1,5 +1,8 @@
 import json
+import os
 import sys
+
+import pytest
 
 from hub.setup_wizard import claude_config as cc
 
@@ -72,3 +75,19 @@ def test_detect_lists_targets(monkeypatch, tmp_path):
     d = cc.detect(tmp_path / "config.yaml")
     assert [t["id"] for t in d["targets"]] == ["desktop:0", "cli"]
     assert "marketing-hub" in d["snippet"]
+
+
+def test_desktop_candidates_dedupes_same_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(cc.sys, "platform", "win32")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
+    real = tmp_path / "local" / "Packages" / "Claude_x" / "LocalCache" / "Roaming" / "Claude"
+    real.mkdir(parents=True)
+    (real / "claude_desktop_config.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "roaming").mkdir()
+    # %APPDATA%\Claude is a junction/symlink to the Store folder on some machines
+    try:
+        os.symlink(real, tmp_path / "roaming" / "Claude", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks need privileges on this machine")
+    assert len(cc.desktop_config_candidates()) == 1

@@ -33,7 +33,13 @@ def desktop_config_candidates() -> list[Path]:
                    / "claude_desktop_config.json")
     else:
         out.append(Path.home() / ".config" / "Claude" / "claude_desktop_config.json")
-    return [p for p in out if p.exists()]
+    # the Store build's LocalCache path and %APPDATA% can be the same file
+    # (folder redirection) - list it once or the user sees two "Claude Desktop"s
+    unique: list[Path] = []
+    for p in out:
+        if p.exists() and not any(os.path.samefile(p, q) for q in unique):
+            unique.append(p)
+    return unique
 
 
 def cli_available() -> bool:
