@@ -9,14 +9,23 @@ from hub.core.config import HubConfig, load_config
 
 app = typer.Typer(help="Marketing Data Hub — personal Windsor.ai replica")
 
-CONFIG_OPT = typer.Option("config.yaml", "--config", help="Path to config.yaml")
+CONFIG_OPT = typer.Option(None, "--config",
+                          help="Path to config.yaml (default: ./config.yaml if "
+                               "present, else the per-user hub folder)")
 
 
-def _load(config_path: str) -> HubConfig:
-    if not Path(config_path).exists():
-        typer.echo(f"Config not found: {config_path} (copy config.yaml.example)")
+def _resolve(config_path: str | None) -> Path:
+    from hub.core.paths import resolve_config_path
+
+    return resolve_config_path(config_path)
+
+
+def _load(config_path: str | None) -> HubConfig:
+    path = _resolve(config_path)
+    if not path.exists():
+        typer.echo(f"Config not found: {path} (run 'hub setup' first)")
         raise typer.Exit(1)
-    return load_config(config_path)
+    return load_config(path)
 
 
 def _sources_to_sync(source: str, config: HubConfig) -> list[str]:
@@ -278,7 +287,7 @@ def dashboard(config: str = CONFIG_OPT,
     from hub.dashboard import run_dashboard
 
     _load(config)  # fail fast with a clear message if config.yaml is missing
-    run_dashboard(config, port=port, open_browser=not no_browser)
+    run_dashboard(_resolve(config), port=port, open_browser=not no_browser)
 
 
 @app.command()
@@ -312,31 +321,27 @@ def setup(config: str = CONFIG_OPT,
     Connect Google accounts, tick the properties/sites to sync, paste ad
     platform tokens, run the first sync, and copy the Claude MCP snippet -
     all from one local page. Creates config.yaml from the example if absent."""
-    from pathlib import Path as _Path
-
+    from hub.core.paths import ensure_home, resolve_config_path
     from hub.setup_wizard import run_setup
 
-    cfg_path = _Path(config)
+    cfg_path = resolve_config_path(config)
     if not cfg_path.exists():
-        # a clean minimal config: the wizard fills in real accounts (the
-        # .example file has placeholder ids that would break a first sync)
-        cfg_path.write_text(
-            "# created by 'hub setup' - accounts are added via the wizard\n"
-            "db_path: data/hub.duckdb\nsecrets_dir: secrets\n"
-            "exports_dir: exports\n\nconnectors: {}\n\nexports: []\n",
-            encoding="utf-8")
-        # loud and unmissable: running 'hub setup' from the wrong folder
-        # silently starting a brand-new, empty hub there is a real footgun,
-        # especially for a non-technical user who won't notice a relative path
-        typer.echo("=" * 60)
-        typer.echo(f"[NEW HUB] No existing config found - starting a fresh one at:")
-        typer.echo(f"          {cfg_path.resolve()}")
-        typer.echo("          If you meant to open your EXISTING hub instead, press")
-        typer.echo("          Ctrl+C now, 'cd' into that folder, and run 'hub setup' "
-                   "again")
-        typer.echo("          (or pass --config <path to your existing config.yaml>).")
-        typer.echo("=" * 60)
-    run_setup(config, port=port, open_browser=not no_browser)
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        ensure_home(cfg_path.parent)
+        if config is None:
+            typer.echo(f"Creating your hub folder at {cfg_path.parent}")
+        else:
+            # loud and unmissable: an explicit --config pointing at a missing
+            # file silently starting a brand-new, empty hub is a real footgun
+            typer.echo("=" * 60)
+            typer.echo("[NEW HUB] No existing config found - starting a fresh one at:")
+            typer.echo(f"          {cfg_path.resolve()}")
+            typer.echo("          If you meant to open your EXISTING hub instead, press")
+            typer.echo("          Ctrl+C now, 'cd' into that folder, and run 'hub setup' "
+                       "again")
+            typer.echo("          (or pass --config <path to your existing config.yaml>).")
+            typer.echo("=" * 60)
+    run_setup(cfg_path, port=port, open_browser=not no_browser)
 
 
 @app.command()
@@ -431,7 +436,7 @@ def accounts(source: str | None = typer.Argument(
         sels = [a for a in chosen if a["source"] == src and not a["configured"]]
         if not sels:
             continue
-        added = add_accounts(config, src, sels, identity=identity,
+        added = add_accounts(_resolve(config), src, sels, identity=identity,
                              secrets_dir=cfg.secrets_dir)
         added_total += len(added)
         for a in sels:
@@ -451,7 +456,7 @@ def mcp(config: str = CONFIG_OPT):
     from hub.mcp.server import build_mcp
 
     cfg = _load(config)
-    build_mcp(cfg, config_path=config).run()
+    build_mcp(cfg, config_path=str(_resolve(config))).run()
 
 
 if __name__ == "__main__":
