@@ -171,3 +171,17 @@ def test_discover_all_survives_probe_failure(monkeypatch):
     assert len(out) == 2
     assert all(a["duplicate_name"] for a in out)
     assert all("active_recently" not in a for a in out)  # probe failed -> just absent
+
+
+def test_remove_accounts_drops_ids_labels_and_identity_maps(tmp_path):
+    from hub.core.accounts import add_accounts, remove_accounts
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("connectors: {}\n", encoding="utf-8")
+    add_accounts(cfg, "ga4", [{"id": "1", "name": "A"}, {"id": "2", "name": "B"}],
+                 identity="personal")
+    removed = remove_accounts(cfg, "ga4", ["1", "999"])
+    assert removed == ["1"]
+    text = cfg.read_text(encoding="utf-8")
+    assert "'1'" not in text and "A" not in text
+    assert "'2'" in text and "B" in text
+    assert remove_accounts(cfg, "gsc", ["x"]) == []

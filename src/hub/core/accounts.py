@@ -233,3 +233,29 @@ def set_connector_options(config_path: str | Path, source: str,
         else:
             opts[key] = value
     yaml.dump(data, config_path.open("w", encoding="utf-8"))
+
+
+def remove_accounts(config_path: str | Path, source: str, ids: list[str]) -> list[str]:
+    """Drop accounts from config.yaml (ids, labels, identities, identity_emails).
+    Data already synced stays in the database. Returns ids actually removed."""
+    config_path = Path(config_path)
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    yaml.width = 4096
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    data = yaml.load(config_path.read_text(encoding="utf-8")) or {}
+    opts = data.get("connectors", {}).get(source, {}).get("options", {})
+    plural = SOURCE_KEYS.get(source)
+    if not opts or not plural:
+        return []
+    wanted = {str(i) for i in ids}
+    current = [str(i) for i in opts.get(plural, [])]
+    removed = [i for i in current if i in wanted]
+    if not removed:
+        return []
+    opts[plural] = [i for i in current if i not in wanted]
+    for key in ("labels", "identities", "identity_emails"):
+        for i in removed:
+            opts.get(key, {}).pop(i, None)
+    yaml.dump(data, config_path.open("w", encoding="utf-8"))
+    return removed
