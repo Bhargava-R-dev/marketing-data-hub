@@ -232,9 +232,12 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
 
     # ---- sync ------------------------------------------------------------
     def _sync_argv() -> tuple[str, list[str]]:
+        # --unattended: a dead token must show up as an error row in the Sync
+        # step, never as a surprise browser tab opened by a background process
+        args = ["sync", "all", "--unattended", "--config", str(config_path)]
         if getattr(sys, "frozen", False):
-            return sys.executable, ["sync", "all", "--config", str(config_path)]
-        return sys.executable, ["-m", "hub.cli", "sync", "all", "--config", str(config_path)]
+            return sys.executable, args
+        return sys.executable, ["-m", "hub.cli", *args]
 
     @app.post("/api/sync")
     def post_sync(request: Request) -> dict:
