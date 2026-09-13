@@ -20,9 +20,12 @@ def test_configured_accounts_lists_every_target_with_labels():
     assert configured_accounts(cfg, ["gsc"])[0]["source"] == "gsc"
 
 
-def test_progress_path_sits_in_home_logs():
-    cfg = HubConfig(db_path="/home/u/hub/data/hub.duckdb")
-    assert progress_path(cfg).as_posix().endswith("/home/u/hub/logs/sync_progress.json")
+def test_progress_path_sits_in_home_logs(tmp_path):
+    from hub.core.config import load_config
+    (tmp_path / "config.yaml").write_text("db_path: hub.duckdb\nconnectors: {}\n", encoding="utf-8")
+    cfg = load_config(tmp_path / "config.yaml")
+    # beside the config file, regardless of where db_path points
+    assert progress_path(cfg) == tmp_path / "logs" / "sync_progress.json"
 
 
 def test_progress_lifecycle_writes_atomically(tmp_path):

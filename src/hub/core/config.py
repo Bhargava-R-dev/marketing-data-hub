@@ -31,6 +31,9 @@ class HubConfig(BaseModel):
     db_path: str = "data/hub.duckdb"
     secrets_dir: str = "secrets"
     exports_dir: str = "exports"
+    # the folder config.yaml lives in (set by load_config): logs, progress and
+    # anything else "beside the config" derive from it, never from db_path
+    home: str = "."
     connectors: dict[str, ConnectorSettings] = Field(default_factory=dict)
     exports: list[ExportConfig] = Field(default_factory=list)
 
@@ -48,6 +51,7 @@ def load_config(path: str | Path = "config.yaml") -> HubConfig:
     # server, scheduler, and CLI all launch from different cwds). Absolute paths
     # are left untouched.
     base = path.resolve().parent
+    cfg.home = str(base)
     for attr in ("db_path", "secrets_dir", "exports_dir"):
         value = Path(getattr(cfg, attr))
         if not value.is_absolute():

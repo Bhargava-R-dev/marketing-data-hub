@@ -21,7 +21,7 @@ _TARGET_KEYS = {
 
 
 def progress_path(config: HubConfig) -> Path:
-    return Path(config.db_path).parent.parent / "logs" / "sync_progress.json"
+    return Path(config.home) / "logs" / "sync_progress.json"
 
 
 def configured_accounts(config: HubConfig, sources: list[str] | None = None) -> list[dict]:
