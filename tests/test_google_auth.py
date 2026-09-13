@@ -457,3 +457,21 @@ def test_non_interactive_get_credentials_raises_instead_of_opening_browser(tmp_p
         google_auth.get_credentials(tmp_path, interactive=False)
     assert "expired or was revoked" in str(exc.value)
     assert "Connect Google" in exc.value.hint
+
+
+def test_merge_duplicate_identity_folds_same_email_into_existing_slug(tmp_path):
+    from hub.connectors.google_auth import get_identity_labels, merge_duplicate_identity
+
+    make_token(tmp_path, None)                       # default (old token)
+    set_identity_label(tmp_path, "default", "a@example.com")
+    (tmp_path / "google_token_account2.json").write_text('{"new": true}', encoding="utf-8")
+    set_identity_label(tmp_path, "account2", "a@example.com")
+    set_identity_label(tmp_path, "personal", "b@example.com")
+
+    assert merge_duplicate_identity(tmp_path, "account2") == "default"
+    assert not (tmp_path / "google_token_account2.json").exists()
+    assert '"new": true' in (tmp_path / "google_token.json").read_text(encoding="utf-8")
+    assert get_identity_labels(tmp_path) == {"default": "a@example.com",
+                                             "personal": "b@example.com"}
+    # a genuinely new account is left alone
+    assert merge_duplicate_identity(tmp_path, "personal") == "personal"

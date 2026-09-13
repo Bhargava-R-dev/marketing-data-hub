@@ -98,6 +98,31 @@ def set_identity_label(secrets_dir: str | Path, identity: str, email: str) -> No
     (secrets_dir / _LABELS_FILE).write_text(json.dumps(labels, indent=2), encoding="utf-8")
 
 
+def merge_duplicate_identity(secrets_dir: str | Path, identity: str) -> str:
+    """After a login: if the SAME Google account already exists under another
+    slug (user clicked 'add another account' and signed into the one they
+    already had), fold the new token into the existing slug - config.yaml
+    refers to slugs, so the existing one must win. Returns the surviving slug."""
+    secrets_dir = Path(secrets_dir)
+    labels = get_identity_labels(secrets_dir)
+    email = labels.get(identity)
+    if not email:
+        return identity
+    for other, other_email in labels.items():
+        if other == identity or other_email != email:
+            continue
+        if not token_path_for(secrets_dir, other).exists():
+            continue
+        new_token = token_path_for(secrets_dir, identity)
+        if new_token.exists():
+            new_token.replace(token_path_for(secrets_dir, other))
+        labels.pop(identity, None)
+        (secrets_dir / _LABELS_FILE).write_text(json.dumps(labels, indent=2),
+                                                encoding="utf-8")
+        return other
+    return identity
+
+
 def verify_identity_email(secrets_dir: str | Path, identity: str | None,
                           expected_email: str | None, target_label: str) -> None:
     """Refuse to proceed if the Google account currently behind `identity`

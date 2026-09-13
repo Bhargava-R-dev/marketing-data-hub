@@ -136,9 +136,15 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
         login_errors.pop(identity, None)  # clear any previous failure on retry
 
         def run_login():
-            from hub.connectors.google_auth import login
+            from hub.connectors.google_auth import login, merge_duplicate_identity
             try:
                 login(c.secrets_dir, identity=identity)
+                # signing into an account that's already connected must not
+                # produce a second, identical login in the picker
+                merged = merge_duplicate_identity(c.secrets_dir, identity)
+                if merged != identity:
+                    login_threads.pop(identity, None)
+                    discovery_cache.clear()  # the refreshed token may see more
             except Exception as exc:  # noqa: BLE001 - surfaced via /api/state, not swallowed
                 login_errors[identity] = str(exc)
 
@@ -176,7 +182,8 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
             return {"request_id": request_id, "source": source, "identity": identity,
                     "accounts": accounts}
         except Exception as exc:  # noqa: BLE001 - show readable errors in the page
-            return {"request_id": request_id, "error": str(exc)}
+            return {"request_id": request_id,
+                    "error": f"{exc} {getattr(exc, 'hint', '')}".strip()}
 
     @app.post("/api/accounts/add")
     def post_accounts_add(request: Request, body: dict) -> dict:
