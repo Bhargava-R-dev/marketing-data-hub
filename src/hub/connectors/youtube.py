@@ -4,7 +4,7 @@ from datetime import date
 from typing import Iterable
 
 from hub.connectors.base import BaseConnector, FieldRegistry, FieldSpec
-from hub.connectors.google_auth import get_credentials
+from hub.connectors.google_auth import GOOGLE_SCOPES, YOUTUBE_SCOPE, get_credentials
 
 YOUTUBE_FIELDS = FieldRegistry([
     FieldSpec("date", "day", dimension=True),
@@ -35,7 +35,8 @@ class YouTubeConnector(BaseConnector):
     def authenticate(self) -> None:
         # options.identity picks which Google login owns this channel
         self._creds = get_credentials(
-            self.secrets_dir, identity=self.settings.options.get("identity"))
+            self.secrets_dir, scopes=[*GOOGLE_SCOPES, YOUTUBE_SCOPE],
+            identity=self.settings.options.get("identity"))
 
     def extract(self, date_from: date, date_to: date) -> Iterable[dict]:
         from googleapiclient.discovery import build

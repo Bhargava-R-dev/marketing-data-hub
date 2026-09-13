@@ -391,3 +391,15 @@ def test_other_refresh_errors_dont_get_the_invalid_grant_hint(tmp_path, monkeypa
     with pytest.raises(AuthError) as exc:
         get_credentials(tmp_path)
     assert "Testing" not in exc.value.hint
+
+
+def test_base_scopes_exclude_optional_connectors():
+    from hub.connectors.google_auth import GOOGLE_ADS_SCOPE, GOOGLE_SCOPES, YOUTUBE_SCOPE
+
+    assert GOOGLE_SCOPES == [
+        "https://www.googleapis.com/auth/analytics.readonly",
+        "https://www.googleapis.com/auth/webmasters.readonly",
+        "https://www.googleapis.com/auth/userinfo.email",
+    ]
+    assert YOUTUBE_SCOPE == "https://www.googleapis.com/auth/yt-analytics.readonly"
+    assert GOOGLE_ADS_SCOPE == "https://www.googleapis.com/auth/adwords"

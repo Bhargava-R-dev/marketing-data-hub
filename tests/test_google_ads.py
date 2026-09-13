@@ -39,7 +39,8 @@ def test_multi_customer_ids_and_labels(tmp_path):
     import json
     from hub.core.config import ConnectorSettings
     (tmp_path / "google_token.json").write_text(json.dumps(
-        {"refresh_token": "r", "client_id": "c", "client_secret": "s"}), encoding="utf-8")
+        {"refresh_token": "r", "client_id": "c", "client_secret": "s",
+         "scopes": ["https://www.googleapis.com/auth/adwords"]}), encoding="utf-8")
     (tmp_path / "google_client.json").write_text(json.dumps(
         {"installed": {"client_id": "c", "client_secret": "s"}}), encoding="utf-8")
     conn = GoogleAdsConnector(ConnectorSettings(options={
@@ -55,3 +56,24 @@ def test_multi_customer_ids_and_labels(tmp_path):
     }], "111-222-3333", "Brand A")
     assert rows[0]["account_name"] == "Brand A"
     assert rows[0]["spend"] == 5.0
+
+
+def test_authenticate_reconsents_when_adwords_scope_missing(tmp_path, monkeypatch):
+    import json
+    from hub.connectors import google_auth
+    from hub.core.config import ConnectorSettings
+    (tmp_path / "google_token.json").write_text(json.dumps(
+        {"refresh_token": "r", "client_id": "c", "client_secret": "s",
+         "scopes": google_auth.GOOGLE_SCOPES}), encoding="utf-8")
+    (tmp_path / "google_client.json").write_text(json.dumps(
+        {"installed": {"client_id": "c", "client_secret": "s"}}), encoding="utf-8")
+    captured = {}
+
+    def fake_get_credentials(secrets_dir, scopes=None, identity=None):
+        captured["scopes"] = scopes
+
+    monkeypatch.setattr(google_auth, "get_credentials", fake_get_credentials)
+    conn = GoogleAdsConnector(ConnectorSettings(options={
+        "developer_token": "dev", "customer_id": "111-222-3333"}), tmp_path)
+    conn.authenticate()
+    assert captured["scopes"] == [*google_auth.GOOGLE_SCOPES, google_auth.GOOGLE_ADS_SCOPE]

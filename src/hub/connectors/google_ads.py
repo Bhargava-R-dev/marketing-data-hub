@@ -6,7 +6,8 @@ from typing import Iterable
 
 from hub.connectors.base import (AuthError, BaseConnector, FieldRegistry,
                                  FieldSpec, resolve_targets)
-from hub.connectors.google_auth import token_path_for
+from hub.connectors import google_auth
+from hub.connectors.google_auth import GOOGLE_ADS_SCOPE, GOOGLE_SCOPES, token_path_for
 
 GOOGLE_ADS_FIELDS = FieldRegistry([
     FieldSpec("date", "segments.date", dimension=True),
@@ -69,6 +70,13 @@ class GoogleAdsConnector(BaseConnector):
                 "Google OAuth files missing.",
                 hint=f"Run a sync of ga4/gsc first (or 'hub login') to create {token_path.name}.")
         token = json.loads(token_path.read_text(encoding="utf-8"))
+        if GOOGLE_ADS_SCOPE not in (token.get("scopes") or []):
+            # the shared token is minted with the base scopes only; one
+            # re-consent adds adwords, then re-read the refreshed file
+            google_auth.get_credentials(
+                self.secrets_dir, scopes=[*GOOGLE_SCOPES, GOOGLE_ADS_SCOPE],
+                identity=opts.get("identity"))
+            token = json.loads(token_path.read_text(encoding="utf-8"))
         client = json.loads(client_path.read_text(encoding="utf-8"))
         installed = client.get("installed") or client.get("web") or {}
         customer_ids = resolve_targets(self.settings.options, "customer_ids", "customer_id")

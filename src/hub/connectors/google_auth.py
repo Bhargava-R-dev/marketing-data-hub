@@ -13,13 +13,16 @@ from hub.connectors.base import AuthError
 # internally; since we run the token exchange ourselves, we set it here too.
 os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
 
+# Only these three go through Google's verification review. Connectors that
+# need more (YouTube, Google Ads) add their own scope when configured, so the
+# consent screen stays minimal for everyone who only uses GA4 + Search Console.
 GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/analytics.readonly",
     "https://www.googleapis.com/auth/webmasters.readonly",
-    "https://www.googleapis.com/auth/yt-analytics.readonly",
-    "https://www.googleapis.com/auth/adwords",
     "https://www.googleapis.com/auth/userinfo.email",
 ]
+YOUTUBE_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly"
+GOOGLE_ADS_SCOPE = "https://www.googleapis.com/auth/adwords"
 
 _LABELS_FILE = "identity_labels.json"
 # an unattended run (the daily scheduled sync) has nobody to complete a

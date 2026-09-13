@@ -29,3 +29,20 @@ def test_connector_metadata():
     assert YouTubeConnector.id == "youtube"
     assert set(YOUTUBE_FIELDS.names()) == {
         "date", "views", "likes", "watch_minutes", "subscribers_gained"}
+
+
+def test_youtube_requests_its_own_scope(monkeypatch, tmp_path):
+    from hub.connectors import youtube as yt_mod
+    from hub.connectors.google_auth import GOOGLE_SCOPES, YOUTUBE_SCOPE
+    from hub.core.config import ConnectorSettings
+
+    captured = {}
+
+    def fake_get_credentials(secrets_dir, scopes=None, identity=None):
+        captured["scopes"] = scopes
+        return object()
+
+    monkeypatch.setattr(yt_mod, "get_credentials", fake_get_credentials)
+    conn = YouTubeConnector(ConnectorSettings(options={}), tmp_path)
+    conn.authenticate()
+    assert captured["scopes"] == [*GOOGLE_SCOPES, YOUTUBE_SCOPE]
