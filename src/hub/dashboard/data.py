@@ -4,6 +4,7 @@ from datetime import date
 
 from hub.core.config import HubConfig
 from hub.core.freshness import interpret_freshness
+from hub.core.progress import SyncProgress, progress_path
 from hub.core.storage import Storage
 
 
@@ -16,7 +17,8 @@ def build_dashboard(config: HubConfig) -> dict:
     try:
         storage = Storage(config.db_path, read_only=True)
     except Exception as exc:  # noqa: BLE001 - db missing or locked by a sync
-        return {"groups": [], "busy": True, "error": str(exc)}
+        return {"groups": [], "busy": True, "error": str(exc),
+                "last_run": SyncProgress.read(progress_path(config))}
 
     try:
         accounts = storage.accounts()
@@ -77,4 +79,5 @@ def build_dashboard(config: HubConfig) -> dict:
             "accounts": sorted(by_source.get(source, []),
                               key=lambda r: r["account_name"]),
         })
-    return {"groups": groups, "busy": False}
+    return {"groups": groups, "busy": False,
+            "last_run": SyncProgress.read(progress_path(config))}

@@ -70,7 +70,7 @@ def test_build_dashboard_empty_db_returns_no_groups(tmp_path):
                     secrets_dir=str(tmp_path / "secrets"))
     Storage(cfg.db_path).close()  # create schema, no rows
     data = build_dashboard(cfg)
-    assert data == {"groups": [], "busy": False}
+    assert data == {"groups": [], "busy": False, "last_run": None}
 
 
 def test_build_dashboard_reports_busy_on_missing_db(tmp_path):
@@ -143,3 +143,17 @@ def test_build_dashboard_includes_per_account_gap_days(tmp_path):
     data = build_dashboard(cfg)
     gsc = next(g for g in data["groups"] if g["source"] == "gsc")
     assert gsc["accounts"][0]["gap_days"] == 3  # May 2,3,4 missing
+
+
+def test_dashboard_includes_last_progress_run(tmp_path):
+    from hub.core.config import load_config
+    from hub.core.progress import SyncProgress
+    from hub.dashboard.data import build_dashboard
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("db_path: data/t.duckdb\nsecrets_dir: secrets\nconnectors: {}\n",
+                   encoding="utf-8")
+    p = SyncProgress(tmp_path / "logs" / "sync_progress.json")
+    p.begin([{"source": "gsc", "account_id": "x", "label": "X", "identity": "default"}])
+    p.finish()
+    d = build_dashboard(load_config(cfg))
+    assert d["last_run"]["accounts"][0]["label"] == "X"

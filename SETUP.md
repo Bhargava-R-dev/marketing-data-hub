@@ -65,7 +65,12 @@ python -m pip install -e ".[dev]"
 Optional extras, only if you'll use those connectors:
 `python -m pip install -e ".[googleads]"` / `".[meta]"`.
 
-## 2. Create your Google Cloud OAuth credentials (one time)
+## 2. Create your Google Cloud OAuth credentials (optional)
+
+**You can skip this step.** The app ships with its own Google sign-in client,
+so `hub setup` works out of the box. Only follow this section if you need your
+own Google Cloud project (company policy, or you just prefer it) — the file
+you download here overrides the bundled one.
 
 This is what lets the tool sign in as you and read your data.
 

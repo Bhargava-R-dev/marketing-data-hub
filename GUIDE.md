@@ -89,26 +89,17 @@ worry — you'll only type a handful of lines, and you can copy-paste them.
 
 A window opens with a blinking cursor. That's it — leave it open.
 
-### Step 3 — Make a folder for your hub
+### Step 3 — Nothing to do here
 
-Copy-paste these two lines into the command window, pressing **Enter** after
-each. This makes a folder called `marketing-hub` and moves into it.
+The tool picks its own folder for your settings and data
+(`MarketingDataHub` inside your user's AppData\Local on Windows,
+`.marketing-data-hub` in your home folder on Mac). The setup page shows the
+exact path. If you ever want to start fresh, delete that folder.
 
-**Windows:**
-```
-mkdir %USERPROFILE%\marketing-hub
-cd %USERPROFILE%\marketing-hub
-```
-
-**Mac:**
-```
-mkdir ~/marketing-hub
-cd ~/marketing-hub
-```
-
-> Tip: everything the tool creates — your settings and your data — will live
-> inside this `marketing-hub` folder. If you ever want to start fresh, you can
-> just delete the folder.
+> **Windows shortcut:** if you'd rather not use a command window at all,
+> download the installer from
+> <https://growthbybhargava.com/tools/marketing-data-hub>, run it, and skip
+> straight to Step 7 — the setup page opens by itself.
 
 ### Step 4 — Install the tool
 
@@ -122,20 +113,12 @@ You'll see a lot of text scroll by for a minute or two while it downloads. When
 the cursor comes back and stops scrolling, it's done. (If you see a note about
 "a new release of pip is available," ignore it — that's harmless.)
 
-### Step 5 — Add the sign-in file from your admin
+### Step 5 — Sign-in file: built in
 
-Your admin sent you a file called **`google_client.json`**. Now you'll put it in
-the right place.
-
-1. Inside your `marketing-hub` folder, make a folder named **`secrets`** (all
-   lowercase). In the command window:
-   - **Windows:** `mkdir secrets`
-   - **Mac:** `mkdir secrets`
-2. Move the `google_client.json` file your admin sent you **into that `secrets`
-   folder**, using your normal File Explorer / Finder (drag and drop is fine).
-
-The file should end up here:
-`marketing-hub` → `secrets` → `google_client.json`
+Nothing to add — the tool ships with its own Google sign-in. (Only if your
+company insists on its own Google Cloud project will an admin give you a
+`google_client.json`; then drop it in the `secrets` folder inside the tool's
+folder from Step 3, and the setup page will say "Using your own Google client".)
 
 That's the whole installation. Now the fun part.
 
@@ -156,44 +139,44 @@ and press **Enter**. After a second, **a page opens in your web browser** titled
 next — no more typing commands. Keep the command window open in the
 background (don't close it while you're using the wizard).
 
-You'll see five numbered sections on the page. Go through them top to bottom.
+The page walks you through six steps, shown across the top. Click **"Get
+started"** on the Welcome step.
 
-### Step 7 — Section 1: Connect Google
+### Step 7 — Connect Google
 
-1. Click **"+ Connect a Google account."** (No name to type — the tool figures
-   out which account it is automatically.)
+1. Click **"Sign in with Google."** (No name to type — the tool figures out
+   which account it is automatically.)
 2. A **Google sign-in tab** opens. Sign in with the Google account that can see
    your analytics.
-3. Google may show a screen saying the app **"isn't verified."** This is normal
-   for an internal tool — click **"Advanced"** and then **"Go to … (unsafe)"**
-   to continue. (It's your admin's app; it's safe.)
+3. Google may show a screen saying the app **"isn't verified."** If so, click
+   **"Advanced"** and then **"Go to Marketing Data Hub"** to continue.
 4. Tick the boxes to **allow** access when Google asks, and finish.
-5. Back on the wizard page, you'll see **your email address** appear under
-   "Connected" — confirming which account just connected.
+5. The setup page notices by itself and moves on, showing **your email
+   address** as connected.
 
-> **Have analytics under a second Google account too?** Click **"+ Connect a
-> Google account"** again and sign in with the other one (choose **"Use
-> another account"** if Google offers to reuse the one you're already signed
-> into). Both show up by their real email, side by side, and Section 2 lets
-> you switch between them.
+> **Have analytics under a second Google account too?** Click **"+ Add another
+> Google account"** and sign in with the other one (choose **"Use another
+> account"** if Google offers to reuse the one you're already signed into).
+> Both show up by their real email, and the next step lets you switch between
+> them.
 
-### Step 8 — Section 2: Choose what to sync
+### Step 8 — Choose accounts
 
-1. On the left, pick **GA4** or **Search Console** — whichever you want to add.
-2. Along the top, pick **which connected account** (by email) it belongs to.
-   A checklist loads after ~10 seconds, with every property/site that account
-   can see, grouped and searchable if you have a lot.
-3. **Tick the ones you want** to track. (Accounts already added show a ✓ and are
-   greyed out.) Use the search box to jump straight to a name if the list is long.
-4. Click **"Add selected."** You'll see a confirmation, and the "Currently
-   syncing" line at the bottom updates.
+1. Pick **GA4** or **Search Console** — whichever you want to add.
+2. Pick **which connected account** (by email) it belongs to. A checklist loads
+   after ~10 seconds with every property/site that account can see, grouped and
+   searchable if you have a lot. Each group has a **"select all"** link.
+3. **Tick the ones you want.** The button shows how many you've selected.
+4. Click **"Add N selected."** They appear instantly under "Currently syncing";
+   the ✕ on any of them removes it again.
+5. Click **"Continue to sync"** when you're done.
 
 That's the core of it — GA4 and Search Console are now set up.
 
-### Step 9 — Section 3: Ad platforms (optional — skip if you don't run ads)
+### Step 9 — Ad platforms (optional — skip if you don't run ads)
 
-Click the **"Ad platforms"** heading to expand it. Only fill in the platform(s)
-you use.
+On the Choose accounts step, open **"Advanced: Google Ads & Meta Ads tokens"**.
+Only fill in the platform(s) you use.
 
 **Meta Ads (Facebook / Instagram):**
 - Paste your **access token** (your admin generates this from the shared Meta
@@ -212,32 +195,36 @@ you use.
 > Not sure about tokens? That's fine — ask your admin. They set these up once
 > and share the values. See the "Words explained" section at the end.
 
-### Step 10 — Section 4: Load your data
+### Step 10 — Sync
 
-1. Click **"Run first sync."**
-2. You'll see each source update live: *⏳ syncing…* then *✓ ga4: 12,495 rows*.
-3. This can take a few minutes (longer if you have lots of accounts). Let it
-   finish — you'll see **"done ✓"** at the top.
+The sync starts by itself. You'll see one line per account with a spinner,
+then *✓ 12,495 rows* as each finishes, and a progress bar at the top. This can
+take a few minutes (longer with many accounts). You can close the tab and come
+back — the sync carries on, and reopening the setup shows where it got to.
+Click **"Continue"** when the bar is full.
 
 Your data is now on your computer.
 
-### Step 11 — Section 5: Connect Claude
+### Step 11 — Connect Claude
 
 This is what lets you *ask questions*.
 
-1. On the wizard page, click **"Copy"** under the code box. (This copies a small
-   piece of text — your personal connection snippet.)
-2. Open **Claude Desktop**.
-3. Go to **Settings → Developer → Edit Config.** A settings file opens.
-4. Paste the snippet inside it, following the on-page instructions (it goes
-   inside the `mcpServers` section). Save the file.
-   - If the file was empty or you're unsure, ask your admin to help with this
-     one paste — it takes 30 seconds.
-5. **Fully quit Claude Desktop and reopen it** (quit completely, not just close
-   the window).
+1. The page shows **"Claude Desktop"** if it's installed. Click **"Connect."**
+   That's it — the settings file is written for you (a backup of the old one is
+   kept next to it).
+2. **Fully quit Claude Desktop and reopen it** (right-click its icon in the
+   system tray → Quit — not just close the window).
+3. Click **"Continue."**
 
-6. Back on the wizard page, click **"Finish & close wizard."** You can close the
-   browser tab and the command window now.
+> Claude Desktop not found? Install it from claude.ai/download, then click
+> **"Check again."** The manual snippet is under "Manual setup" if you ever
+> need it.
+
+### Step 12 — Done
+
+The last step shows a summary and schedules the **daily 6am refresh** for you.
+Click **"Open dashboard"** to see your data, or **"Close setup."** You can
+close the browser tab and the command window now.
 
 **You're done.** 🎉
 

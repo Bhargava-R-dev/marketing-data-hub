@@ -6,27 +6,32 @@ Ads, YouTube) into one local database — queryable via a REST API, scheduled
 CSV exports, and by AI assistants like Claude (MCP). No hosted service, no
 subscription, your tokens never leave your computer.
 
-## Quick start (no config editing needed)
+## Quick start
+
+**Windows:** download the installer from
+<https://growthbybhargava.com/tools/marketing-data-hub> and run it — the setup
+page opens in your browser.
+
+**Anywhere with Python 3.11+:**
 
 ```bash
 pip install marketing-data-hub
-mkdir my-marketing-hub && cd my-marketing-hub
 hub setup
 ```
 
-(Developers: `git clone https://github.com/rallabandibhargava-dev/marketing-data-hub`
+(Developers: `git clone https://github.com/Bhargava-R-dev/marketing-data-hub`
 and `pip install -e ".[dev]"` instead.)
 
-`hub setup` opens a page in your browser where you:
+The setup page walks you through: sign in to Google → tick the GA4 properties /
+Search Console sites you want → watch the first sync load, account by account →
+connect Claude (one click) → done, with the daily 6am sync scheduled for you.
 
-1. **Connect Google** — sign in, done (multiple Google accounts supported)
-2. **Tick the GA4 properties / Search Console sites** you want
-3. Optionally paste Google Ads / Meta Ads tokens
-4. **Run the first sync** and watch it load
-5. **Copy the Claude snippet** to ask questions in plain English
-
-One prerequisite: a Google OAuth client file at `secrets/google_client.json`
-(one-time, ~5 minutes — see [SETUP.md](SETUP.md) step 2; teams share one file).
+Your hub lives in `%LOCALAPPDATA%\MarketingDataHub` (Windows) or
+`~/.marketing-data-hub` (Mac/Linux); nothing to configure. A `config.yaml` in
+the current folder takes precedence, so existing checkouts keep working.
+Prefer your own Google Cloud project over the bundled sign-in? Drop your
+`google_client.json` in that folder's `secrets/` — the setup page shows which
+one is in use ([SETUP.md](SETUP.md) step 2).
 
 **Never used a terminal? → [GUIDE.md](GUIDE.md)** is a complete, plain-English
 walkthrough from installing Python through asking your first question — written
