@@ -9,6 +9,19 @@ from hub.core.config import HubConfig, load_config
 
 app = typer.Typer(help="Marketing Data Hub — personal Windsor.ai replica")
 
+
+def _version_cb(value: bool):
+    if value:
+        from hub.core.version import current
+        typer.echo(f"marketing-data-hub {current()}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(version: bool = typer.Option(False, "--version", callback=_version_cb,
+                                       is_eager=True, help="Show version and exit")):
+    """Marketing Data Hub — your marketing data, on your machine."""
+
 CONFIG_OPT = typer.Option(None, "--config",
                           help="Path to config.yaml (default: ./config.yaml if "
                                "present, else the per-user hub folder)")
@@ -471,6 +484,26 @@ def mcp(config: str = CONFIG_OPT):
 
     cfg = _load(config)
     build_mcp(cfg, config_path=str(_resolve(config))).run()
+
+
+@app.command()
+def schedule(config: str = CONFIG_OPT,
+             hour: int = typer.Option(6, help="Hour of day (0-23) for the daily sync"),
+             remove: bool = typer.Option(False, "--remove", help="Unregister the task")):
+    """Run 'hub sync all' automatically every day (Windows Task Scheduler;
+    prints a cron line elsewhere)."""
+    from hub.core.schedule import install_daily_sync, remove_daily_sync
+
+    cfg_path = _resolve(config)
+    if remove:
+        typer.echo("[OK] removed" if remove_daily_sync() else "nothing to remove")
+        return
+    result = install_daily_sync(cfg_path, hour=hour)
+    if result["installed"]:
+        typer.echo(f"[OK] '{result['task_name']}' runs daily at {result['time']}")
+    else:
+        typer.echo("Add this line with 'crontab -e':")
+        typer.echo(result["cron_line"])
 
 
 if __name__ == "__main__":
