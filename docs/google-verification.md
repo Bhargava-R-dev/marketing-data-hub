@@ -6,13 +6,13 @@ Do these in order. Items marked **(needs live site)** wait until the website PR 
 ## A. Consent screen (Google Auth Platform → Branding)
 
 - [ ] App name: `Marketing Data Hub`
-- [ ] User support email: your address
+- [ ] User support email: `bhargava@growthbybhargava.com` (matches the address on the privacy/terms pages — a mismatch here is a common reason Google sends verification back for clarification)
 - [ ] App logo: 120×120 PNG (the logo you're preparing)
 - [ ] App home page **(needs live site)**: `https://growthbybhargava.com/tools/marketing-data-hub`
 - [ ] Privacy policy **(needs live site)**: `https://growthbybhargava.com/privacy`
 - [ ] Terms of service **(needs live site)**: `https://growthbybhargava.com/terms`
 - [ ] Authorized domains: `growthbybhargava.com`
-- [ ] Developer contact email: your address
+- [ ] Developer contact email: `bhargava@growthbybhargava.com` (Google sends review questions here — same address as above)
 - [ ] Save
 
 ## B. Audience
