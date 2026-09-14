@@ -22,7 +22,13 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def _render_index(run_token: str, config_path: str) -> str:
+    from hub.core.version import current
+
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    # cache-bust per run: browsers otherwise keep serving last week's app.js
+    stamp = f"{current()}-{run_token[:8]}"
+    html = (html.replace("/static/app.js", f"/static/app.js?v={stamp}")
+                .replace("/static/style.css", f"/static/style.css?v={stamp}"))
     return (html.replace("__RUN_TOKEN__", run_token)
                 .replace("__CONFIG_PATH_DISPLAY__", config_path)
                 .replace("__CONFIG_PATH__", config_path.replace("\\", "\\\\")))
