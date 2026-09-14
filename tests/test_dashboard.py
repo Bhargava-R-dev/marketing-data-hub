@@ -157,3 +157,21 @@ def test_dashboard_includes_last_progress_run(tmp_path):
     p.finish()
     d = build_dashboard(load_config(cfg))
     assert d["last_run"]["accounts"][0]["label"] == "X"
+
+
+def test_dashboard_page_links_to_account_management_only_when_available():
+    from hub.dashboard.page import render_dashboard_page
+    inside_wizard = render_dashboard_page("/#accounts")
+    assert 'href="/#accounts">Add or remove accounts' in inside_wizard
+    assert 'const MANAGE_URL = "/#accounts"' in inside_wizard
+    standalone = render_dashboard_page()
+    assert "hub setup" in standalone and 'const MANAGE_URL = ""' in standalone
+
+
+def test_wizard_dashboard_has_manage_link(tmp_path):
+    from fastapi.testclient import TestClient
+    from hub.setup_wizard import create_setup_app
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("db_path: data/t.duckdb\nsecrets_dir: secrets\nconnectors: {}\n", encoding="utf-8")
+    page = TestClient(create_setup_app(cfg)).get("/dashboard").text
+    assert "Add or remove accounts" in page

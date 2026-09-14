@@ -31,9 +31,11 @@ _PAGE = r"""<!DOCTYPE html>
 <h1>Your Data</h1>
 <p class="muted">What's synced into your hub right now — refreshes automatically.
  <span id="refreshMsg"></span></p>
+<p>__MANAGE_LINK__</p>
 <div id="content"><p class="muted">loading&hellip;</p></div>
 
 <script>
+const MANAGE_URL = "__MANAGE_URL__";
 function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
 function fmtNum(n) { return (n || 0).toLocaleString(); }
 
@@ -76,7 +78,7 @@ function render(data) {
       </div>
       ${g.accounts.length ? `
       <table>
-        <tr><th>Brand</th><th>Google login</th><th>Date range</th><th>Rows</th><th>Freshness</th><th>Gaps</th></tr>
+        <tr><th>Brand</th><th>Google login</th><th>Date range</th><th>Rows</th><th>Freshness</th><th>Gaps</th>${MANAGE_URL ? "<th></th>" : ""}</tr>
         ${g.accounts.map(a => `
           <tr>
             <td>${esc(a.account_name)}</td>
@@ -85,6 +87,7 @@ function render(data) {
             <td>${fmtNum(a.rows)}</td>
             <td>${freshnessBadge(a.freshness)}</td>
             <td>${gapsBadge(a.gap_days)}</td>
+            ${MANAGE_URL ? `<td><a href="${MANAGE_URL}" title="add or remove accounts">remove…</a></td>` : ""}
           </tr>`).join("")}
       </table>` : '<p class="muted">no accounts configured for this source yet</p>'}
     </div>`).join("");
@@ -108,5 +111,11 @@ setInterval(refresh, 15000);
 """
 
 
-def render_dashboard_page() -> str:
-    return _PAGE
+def render_dashboard_page(manage_url: str | None = None) -> str:
+    """manage_url: where 'add or remove accounts' lives. Set when the dashboard
+    is served inside the setup app (which holds the write token); the
+    standalone dashboard stays read-only and points people at the app."""
+    link = (f'<a href="{manage_url}">Add or remove accounts &rarr;</a>' if manage_url
+            else 'To add or remove accounts, open <b>Marketing Data Hub</b> from your '
+                 'Desktop / Start Menu (or run <code>hub setup</code>).')
+    return _PAGE.replace("__MANAGE_LINK__", link).replace("__MANAGE_URL__", manage_url or "")

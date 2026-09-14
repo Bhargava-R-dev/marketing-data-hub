@@ -12,16 +12,19 @@ from hub.dashboard.data import build_dashboard
 from hub.dashboard.page import render_dashboard_page
 
 
-def dashboard_router(config_path: str | Path, prefix: str = "") -> APIRouter:
+def dashboard_router(config_path: str | Path, prefix: str = "",
+                     manage_url: str | None = None) -> APIRouter:
     """Routes for the dashboard — mountable standalone or inside another app
     (e.g. the setup wizard, so 'Open dashboard' needs no extra process).
-    Read-only: no setup-token gate, same trust level as `hub status`."""
+    Read-only: no setup-token gate, same trust level as `hub status`.
+    manage_url links to the (token-guarded) account management page when
+    there is one in the same process."""
     config_path = Path(config_path).resolve()
     router = APIRouter()
 
     @router.get(prefix + "/dashboard", response_class=HTMLResponse)
     def dashboard_page() -> str:
-        return render_dashboard_page()
+        return render_dashboard_page(manage_url)
 
     @router.get(prefix + "/api/dashboard-data")
     def dashboard_data() -> dict:

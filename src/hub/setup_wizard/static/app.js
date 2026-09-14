@@ -209,11 +209,12 @@ async function addSelected() {
 function renderConfigured() {
   const items = [];
   for (const [s, info] of Object.entries(S.connectors)) for (const a of info.accounts)
-    items.push(`<span class="pill">${esc(s === "ga4" ? "GA4" : s === "gsc" ? "GSC" : s)}: ${esc(a.label)} <span class="x" title="remove" onclick="removeAccount('${esc(s)}','${esc(a.id)}')">✕</span></span>`);
+    items.push(`<span class="pill">${esc(s === "ga4" ? "GA4" : s === "gsc" ? "GSC" : s)}: ${esc(a.label)} <span class="x" title="stop syncing this account" onclick="removeAccount('${esc(s)}','${esc(a.id)}','${esc(a.label)}')">remove ✕</span></span>`);
   $("confCount").textContent = items.length;
   $("configured").innerHTML = items.join("") || '<span class="muted">nothing yet</span>';
 }
-async function removeAccount(s, id) {
+async function removeAccount(s, id, label) {
+  if (!confirm(`Stop syncing "${label}"?\n\nData already loaded stays in your database; it just won't refresh. You can add it back any time.`)) return;
   await api("/api/accounts/remove", {method: "POST", body: JSON.stringify({source: s, ids: [id]})});
   await refresh();
   discovered = discovered.map(a => a.id === id ? {...a, configured: false} : a);
@@ -349,5 +350,10 @@ async function finish() {
 }
 
 // ---------------------------------------------------------------- boot
-// a brand-new hub starts on Welcome; anything already connected resumes where it left off
-(async () => { await refresh(); go(connectedLogins().length ? furthestStep() : 0); })();
+// a brand-new hub starts on Welcome; anything already connected resumes where it
+// left off; "#accounts" (from the dashboard's links) jumps straight to the account list
+(async () => {
+  await refresh();
+  if (location.hash === "#accounts" && connectedLogins().length) { history.replaceState(null, "", "/"); go(2); return; }
+  go(connectedLogins().length ? furthestStep() : 0);
+})();

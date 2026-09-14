@@ -33,7 +33,8 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
     home = config_path.parent
     progress_file = home / "logs" / "sync_progress.json"
     app = FastAPI(title="Marketing Data Hub Setup")
-    app.include_router(dashboard_router(config_path))  # same-process "Open dashboard"
+    # same-process "Open dashboard"; its rows link back here to add/remove
+    app.include_router(dashboard_router(config_path, manage_url="/#accounts"))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     run_token = secrets.token_hex(16)
     login_threads: dict[str, threading.Thread] = {}
