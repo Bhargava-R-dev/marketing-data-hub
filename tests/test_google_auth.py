@@ -475,3 +475,15 @@ def test_merge_duplicate_identity_folds_same_email_into_existing_slug(tmp_path):
                                              "personal": "b@example.com"}
     # a genuinely new account is left alone
     assert merge_duplicate_identity(tmp_path, "personal") == "personal"
+
+
+def test_disconnect_identity_removes_token_and_label(tmp_path):
+    from hub.connectors.google_auth import disconnect_identity, get_identity_labels, list_identities
+
+    make_token(tmp_path, "personal")
+    set_identity_label(tmp_path, "personal", "p@example.com")
+    set_identity_label(tmp_path, "default", "d@example.com")
+    assert disconnect_identity(tmp_path, "personal") is True
+    assert list_identities(tmp_path) == []
+    assert get_identity_labels(tmp_path) == {"default": "d@example.com"}
+    assert disconnect_identity(tmp_path, "personal") is False

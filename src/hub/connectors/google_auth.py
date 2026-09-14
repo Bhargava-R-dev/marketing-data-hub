@@ -98,6 +98,22 @@ def set_identity_label(secrets_dir: str | Path, identity: str, email: str) -> No
     (secrets_dir / _LABELS_FILE).write_text(json.dumps(labels, indent=2), encoding="utf-8")
 
 
+def disconnect_identity(secrets_dir: str | Path, identity: str) -> bool:
+    """Forget a Google login: delete its token and label. Returns True if a
+    token existed. (Revoking the grant on Google's side is the user's call at
+    myaccount.google.com/permissions.)"""
+    secrets_dir = Path(secrets_dir)
+    token = token_path_for(secrets_dir, identity)
+    existed = token.exists()
+    if existed:
+        token.unlink()
+    labels = get_identity_labels(secrets_dir)
+    if labels.pop(identity, None) is not None:
+        (secrets_dir / _LABELS_FILE).write_text(json.dumps(labels, indent=2),
+                                                encoding="utf-8")
+    return existed
+
+
 def merge_duplicate_identity(secrets_dir: str | Path, identity: str) -> str:
     """After a login: if the SAME Google account already exists under another
     slug (user clicked 'add another account' and signed into the one they

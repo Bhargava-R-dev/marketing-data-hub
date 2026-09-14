@@ -285,3 +285,25 @@ def remap_identity(config_path: str | Path, old: str, new: str) -> int:
     if changed:
         yaml.dump(data, config_path.open("w", encoding="utf-8"))
     return changed
+
+
+def accounts_for_identity(config_path: str | Path, identity: str) -> dict[str, list[str]]:
+    """{source: [ids]} of configured accounts owned by a Google login. Accounts
+    with no explicit mapping belong to 'default'."""
+    from hub.core.config import load_config
+
+    out: dict[str, list[str]] = {}
+    for source, settings in load_config(config_path).connectors.items():
+        plural = SOURCE_KEYS.get(source)
+        if not plural:
+            continue
+        opts = settings.options
+        ids = [str(i) for i in (opts.get(plural) or [])]
+        single = opts.get(plural.rstrip("s"))
+        if single is not None and str(single) not in ids:
+            ids.append(str(single))
+        mapping = opts.get("identities", {})
+        mine = [i for i in ids if mapping.get(i, "default") == identity]
+        if mine:
+            out[source] = mine
+    return out

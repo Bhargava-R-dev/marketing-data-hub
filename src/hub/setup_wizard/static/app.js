@@ -74,7 +74,9 @@ function welcome() {
 function google() {
   const logins = S.identities.map(i => i.needs_reauth
     ? `<span class="pill warn" onclick="connectGoogle('${esc(i.identity)}')">${esc(i.identity)} — click to authorize</span>`
-    : `<span class="pill">✓ ${esc(i.label)} <span class="x" title="sign in again (if Google says the login expired)" onclick="connectGoogle('${esc(i.identity)}')">↻</span></span>`).join("") || `<span class="muted">none yet</span>`;
+    : `<span class="pill">✓ ${esc(i.label)}
+         <span class="x" title="sign in again (if Google says the login expired)" onclick="connectGoogle('${esc(i.identity)}')">↻</span>
+         <span class="x" title="disconnect this Google account" onclick="disconnectGoogle('${esc(i.identity)}','${esc(i.label)}')">disconnect ✕</span></span>`).join("") || `<span class="muted">none yet</span>`;
   $("view").innerHTML = `
     <div class="card">
       <h1>Connect Google</h1>
@@ -87,6 +89,16 @@ function google() {
       </div>
       <div class="actions"><button class="btn" onclick="go(2)" ${connectedLogins().length ? "" : "disabled"}>Continue →</button></div>
     </div>`;
+}
+
+async function disconnectGoogle(identity, label) {
+  const owned = Object.values(S.connectors).reduce((n, c) => n + c.accounts.filter(a => a.identity === identity).length, 0);
+  const msg = `Disconnect ${label}?` + (owned ? `\n\n${owned} account(s) synced through this login will be removed from the sync list (their data stays in your database).` : "")
+    + `\n\nTo also revoke access on Google's side, visit myaccount.google.com/permissions.`;
+  if (!confirm(msg)) return;
+  await api("/api/google/disconnect", {method: "POST", body: JSON.stringify({identity})});
+  await refresh();
+  google();
 }
 
 async function connectGoogle(identity) {

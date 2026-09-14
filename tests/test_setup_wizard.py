@@ -317,3 +317,20 @@ def test_requests_touch_last_seen(wizard):
     time.sleep(0.01)
     client.get("/api/version", headers=h)
     assert client.app.state.hub["last_seen"] > before
+
+
+def test_google_disconnect_removes_login_and_its_accounts(wizard, tmp_path):
+    from hub.connectors.google_auth import set_identity_label, token_path_for
+    from hub.core.accounts import add_accounts
+    client, h, cfg = wizard
+    secrets = tmp_path / "secrets"
+    secrets.mkdir(exist_ok=True)
+    token_path_for(secrets, "personal").write_text("{}", encoding="utf-8")
+    set_identity_label(secrets, "personal", "p@example.com")
+    add_accounts(cfg, "ga4", [{"id": "9", "name": "Nine"}], identity="personal")
+    r = client.post("/api/google/disconnect", headers=h, json={"identity": "personal"}).json()
+    assert r == {"disconnected": "personal", "removed_accounts": {"ga4": ["9"]}}
+    assert not token_path_for(secrets, "personal").exists()
+    assert "Nine" not in cfg.read_text(encoding="utf-8")
+    # the untouched gsc site from the fixture is still there
+    assert "a.example" in cfg.read_text(encoding="utf-8")

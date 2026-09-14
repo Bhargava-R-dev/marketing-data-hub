@@ -164,6 +164,24 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
         return {"status": "started", "identity": identity,
                 "note": "a Google sign-in tab opened - complete it there"}
 
+    @app.post("/api/google/disconnect")
+    def google_disconnect(request: Request, body: dict) -> dict:
+        check_token(request)
+        from hub.connectors.google_auth import disconnect_identity
+        from hub.core.accounts import accounts_for_identity, remove_accounts
+
+        identity = (body.get("identity") or "").strip() or "default"
+        c = cfg()
+        # accounts owned by this login can't sync without it: drop them too,
+        # rather than leave rows that fail every morning
+        owned = accounts_for_identity(config_path, identity)
+        for source, ids in owned.items():
+            remove_accounts(config_path, source, ids)
+        disconnect_identity(c.secrets_dir, identity)
+        login_errors.pop(identity, None)
+        discovery_cache.clear()
+        return {"disconnected": identity, "removed_accounts": owned}
+
     # ---- account discovery / add / remove --------------------------------
     def _discover(identity: str, source: str, refresh: bool) -> list[dict]:
         from hub.connectors.google_auth import get_credentials

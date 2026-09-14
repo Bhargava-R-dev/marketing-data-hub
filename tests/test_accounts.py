@@ -198,3 +198,15 @@ def test_remap_identity_rewrites_or_drops_mappings(tmp_path):
     assert remap_identity(cfg, "personal", "default") == 2
     assert "identities" not in cfg.read_text(encoding="utf-8") or "personal" not in cfg.read_text(encoding="utf-8")
     assert remap_identity(cfg, "nobody", "default") == 0
+
+
+def test_accounts_for_identity_groups_by_login(tmp_path):
+    from hub.core.accounts import accounts_for_identity, add_accounts
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("connectors: {}\n", encoding="utf-8")
+    add_accounts(cfg, "ga4", [{"id": "1", "name": "A"}])                       # default
+    add_accounts(cfg, "ga4", [{"id": "2", "name": "B"}], identity="personal")
+    add_accounts(cfg, "gsc", [{"id": "https://x/", "name": "X"}], identity="personal")
+    assert accounts_for_identity(cfg, "personal") == {"ga4": ["2"], "gsc": ["https://x/"]}
+    assert accounts_for_identity(cfg, "default") == {"ga4": ["1"]}
+    assert accounts_for_identity(cfg, "nobody") == {}
