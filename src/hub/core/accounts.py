@@ -257,6 +257,10 @@ def remove_accounts(config_path: str | Path, source: str, ids: list[str]) -> lis
     for key in ("labels", "identities", "identity_emails"):
         for i in removed:
             opts.get(key, {}).pop(i, None)
+        # an emptied mapping that carried a trailing comment round-trips as
+        # "labels:   # comment\n{}" - invalid YAML - so drop the key instead
+        if key in opts and not opts[key]:
+            del opts[key]
     yaml.dump(data, config_path.open("w", encoding="utf-8"))
     return removed
 

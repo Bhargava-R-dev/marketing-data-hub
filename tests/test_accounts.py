@@ -210,3 +210,17 @@ def test_accounts_for_identity_groups_by_login(tmp_path):
     assert accounts_for_identity(cfg, "personal") == {"ga4": ["2"], "gsc": ["https://x/"]}
     assert accounts_for_identity(cfg, "default") == {"ga4": ["1"]}
     assert accounts_for_identity(cfg, "nobody") == {}
+
+
+def test_remove_accounts_leaves_valid_yaml_when_a_commented_map_empties(tmp_path):
+    from hub.core.accounts import remove_accounts
+    from hub.core.config import load_config
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(
+        "connectors:\n  ga4:\n    options:\n      property_ids: ['1']\n"
+        "      labels:            # friendly names\n        '1': A\n"
+        "      identities: {}\n", encoding="utf-8")
+    assert remove_accounts(cfg, "ga4", ["1"]) == ["1"]
+    loaded = load_config(cfg)  # must still parse
+    assert loaded.connectors["ga4"].options["property_ids"] == []
+    assert "labels" not in loaded.connectors["ga4"].options
