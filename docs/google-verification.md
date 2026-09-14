@@ -5,14 +5,14 @@ Do these in order. Items marked **(needs live site)** wait until the website PR 
 
 ## A. Consent screen (Google Auth Platform → Branding)
 
-- [ ] App name: `Marketing Data Hub`
-- [ ] User support email: `bhargava@growthbybhargava.com` (matches the address on the privacy/terms pages — a mismatch here is a common reason Google sends verification back for clarification)
+- [ ] App name: `Marketing Data Hub` (currently shows a typo, "Marketind Data Hub" — fix it)
+- [ ] User support email: `rallabandibhargava@gmail.com` (Cloud Console's dropdown only accepts the signed-in Google Account or a Group you own — a custom-domain address like `bhargava@growthbybhargava.com` can't be typed in. This does **not** need to match the website's public support email; it's fine, even common, for the two to differ. What actually ties the app to the domain is the Search Console ownership check in step E below.)
 - [ ] App logo: 120×120 PNG (the logo you're preparing)
 - [ ] App home page **(needs live site)**: `https://growthbybhargava.com/tools/marketing-data-hub`
 - [ ] Privacy policy **(needs live site)**: `https://growthbybhargava.com/privacy`
 - [ ] Terms of service **(needs live site)**: `https://growthbybhargava.com/terms`
 - [ ] Authorized domains: `growthbybhargava.com`
-- [ ] Developer contact email: `bhargava@growthbybhargava.com` (Google sends review questions here — same address as above)
+- [ ] Developer contact email: `rallabandibhargava@gmail.com` (Google sends review questions here — check this inbox during the 2–6 week review)
 - [ ] Save
 
 ## B. Audience
