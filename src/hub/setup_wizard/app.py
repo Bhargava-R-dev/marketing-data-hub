@@ -149,16 +149,14 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
         login_errors.pop(identity, None)  # clear any previous failure on retry
 
         def run_login():
-            from hub.connectors.google_auth import login, merge_duplicate_identity
+            from hub.connectors.google_auth import login
+            from hub.core.accounts import resolve_duplicate_login
             try:
                 login(c.secrets_dir, identity=identity)
                 # signing into an account that's already connected must not
                 # produce a second, identical login in the picker
-                merged = merge_duplicate_identity(c.secrets_dir, identity)
+                merged = resolve_duplicate_login(config_path, c.secrets_dir, identity)
                 if merged != identity:
-                    from hub.core.accounts import remap_identity
-
-                    remap_identity(config_path, identity, merged)
                     login_threads.pop(identity, None)
                     discovery_cache.clear()  # the refreshed token may see more
             except Exception as exc:  # noqa: BLE001 - surfaced via /api/state, not swallowed

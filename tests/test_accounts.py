@@ -224,3 +224,38 @@ def test_remove_accounts_leaves_valid_yaml_when_a_commented_map_empties(tmp_path
     loaded = load_config(cfg)  # must still parse
     assert loaded.connectors["ga4"].options["property_ids"] == []
     assert "labels" not in loaded.connectors["ga4"].options
+
+
+def test_resolve_duplicate_login_merges_and_remaps(tmp_path, monkeypatch):
+    from hub.connectors.google_auth import set_identity_label, token_path_for
+    from hub.core.accounts import add_accounts, resolve_duplicate_login
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    token_path_for(secrets, "default").write_text("{}", encoding="utf-8")
+    set_identity_label(secrets, "default", "same@example.com")
+    token_path_for(secrets, "personal").write_text('{"new": true}', encoding="utf-8")
+    set_identity_label(secrets, "personal", "same@example.com")
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("connectors: {}\n", encoding="utf-8")
+    add_accounts(cfg, "ga4", [{"id": "1", "name": "A"}], identity="personal")
+
+    merged = resolve_duplicate_login(cfg, secrets, "personal")
+    assert merged == "default"
+    assert not token_path_for(secrets, "personal").exists()
+    assert '"new": true' in token_path_for(secrets, "default").read_text(encoding="utf-8")
+    assert "personal" not in cfg.read_text(encoding="utf-8")
+
+
+def test_resolve_duplicate_login_noop_for_a_genuinely_new_account(tmp_path):
+    from hub.connectors.google_auth import set_identity_label, token_path_for
+    from hub.core.accounts import resolve_duplicate_login
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    token_path_for(secrets, "default").write_text("{}", encoding="utf-8")
+    set_identity_label(secrets, "default", "a@example.com")
+    token_path_for(secrets, "personal").write_text("{}", encoding="utf-8")
+    set_identity_label(secrets, "personal", "b@example.com")
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("connectors: {}\n", encoding="utf-8")
+    assert resolve_duplicate_login(cfg, secrets, "personal") == "personal"
+    assert token_path_for(secrets, "personal").exists()

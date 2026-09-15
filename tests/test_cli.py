@@ -254,3 +254,26 @@ def test_validate_fails_on_real_overcount(tmp_path):
     assert result.exit_code == 1
     assert "[FAIL]" in result.output
     assert "Vetrotech" in result.output
+
+
+def test_login_merges_when_the_same_account_is_already_connected(tmp_path, monkeypatch):
+    from hub.connectors.google_auth import set_identity_label, token_path_for
+    from hub.core.accounts import add_accounts
+
+    cfg_path = write_config(tmp_path)
+    secrets = tmp_path / "secrets"
+    secrets.mkdir(exist_ok=True)
+    token_path_for(secrets, "default").write_text("{}", encoding="utf-8")
+    set_identity_label(secrets, "default", "same@example.com")
+    add_accounts(cfg_path, "ga4", [{"id": "1", "name": "A"}], identity="personal")
+
+    def fake_login(secrets_dir, identity=None, **kw):
+        token_path_for(secrets_dir, identity).write_text('{"fresh": true}', encoding="utf-8")
+        set_identity_label(secrets_dir, identity, "same@example.com")
+
+    monkeypatch.setattr("hub.connectors.google_auth.login", fake_login)
+    result = runner.invoke(app, ["login", "personal", "--config", str(cfg_path)])
+    assert result.exit_code == 0
+    assert "merged into the existing" in result.output
+    assert not token_path_for(secrets, "personal").exists()
+    assert "personal" not in cfg_path.read_text(encoding="utf-8")

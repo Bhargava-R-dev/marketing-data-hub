@@ -291,6 +291,21 @@ def remap_identity(config_path: str | Path, old: str, new: str) -> int:
     return changed
 
 
+def resolve_duplicate_login(config_path: str | Path, secrets_dir: str | Path,
+                            identity: str) -> str:
+    """Call right after ANY successful google login (wizard or `hub login`):
+    if this identity turns out to be the same real Google account as one
+    that's already connected, fold the new token into the existing slug and
+    repoint config.yaml's identities mapping at the survivor. Returns the
+    identity that ends up owning the login (unchanged if no duplicate)."""
+    from hub.connectors.google_auth import merge_duplicate_identity
+
+    merged = merge_duplicate_identity(secrets_dir, identity)
+    if merged != identity:
+        remap_identity(config_path, identity, merged)
+    return merged
+
+
 def accounts_for_identity(config_path: str | Path, identity: str) -> dict[str, list[str]]:
     """{source: [ids]} of configured accounts owned by a Google login. Accounts
     with no explicit mapping belong to 'default'."""

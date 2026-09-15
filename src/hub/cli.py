@@ -383,12 +383,24 @@ def login(name: str = typer.Argument(
     <name> --add' (or options.identities in config.yaml)."""
     from hub.connectors.google_auth import _LOGIN_TIMEOUT_SECONDS, list_identities
     from hub.connectors.google_auth import login as google_login
+    from hub.core.accounts import resolve_duplicate_login
 
     cfg = _load(config)
+    resolved_config_path = _resolve(config)
     typer.echo(f"Opening browser - sign in with the Google account for identity {name!r}...")
     typer.echo(f"(you have {_LOGIN_TIMEOUT_SECONDS // 60} minutes to finish in the browser "
               "before this times out - just re-run the command if it does)")
     google_login(cfg.secrets_dir, identity=name)
+    # this is the SAME Google account as an already-connected identity? fold
+    # it into that one instead of leaving two logins for one real account
+    # (this is the only path that can create that duplicate silently, since
+    # it bypasses the setup wizard's own check)
+    merged = resolve_duplicate_login(resolved_config_path, cfg.secrets_dir, name)
+    if merged != name:
+        typer.echo(f"[OK] {name!r} is the same Google account as {merged!r} - "
+                   f"merged into the existing 'hub login {merged}' login.")
+        typer.echo(f"Identities now available: {list_identities(cfg.secrets_dir)}")
+        return
     typer.echo(f"[OK] saved. Identities now available: {list_identities(cfg.secrets_dir)}")
     typer.echo(f"Next: hub accounts --identity {name} --add")
 
