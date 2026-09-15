@@ -1,7 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
-datas = (collect_data_files("hub", includes=["resources/*", "setup_wizard/static/*"])
+datas = (collect_data_files("hub", includes=["resources/*", "setup_wizard/static/*",
+                                             "setup_wizard/static/icons/*"])
          + copy_metadata("marketing-data-hub") + copy_metadata("fastmcp") + copy_metadata("mcp"))
 hidden = (collect_submodules("hub")
           + collect_submodules("fastmcp") + collect_submodules("mcp")

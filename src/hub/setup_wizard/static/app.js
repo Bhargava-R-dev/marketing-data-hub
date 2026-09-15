@@ -3,6 +3,8 @@ const H = {"Content-Type": "application/json", "X-Setup-Token": TOKEN};
 const STEPS = ["Welcome", "Connect Google", "Choose accounts", "Sync", "Connect Claude", "Done"];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+const SOURCE_ICONS = {ga4: "ga4.png", gsc: "gsc.png"};
+const sourceIcon = (s) => SOURCE_ICONS[s] ? `<img class="src-icon" src="/static/icons/${SOURCE_ICONS[s]}" alt="${esc(s)}">` : "";
 
 async function api(path, opts) {
   const r = await fetch(path, Object.assign({headers: H}, opts || {}));
@@ -55,9 +57,9 @@ function go(i) {
 
 // -------------------------------------------------------------- 1 welcome
 function welcome() {
-  const client = {bundled: "Signed in through Growth by Bhargava's Google app — nothing to configure.",
-                  own: "Using your own Google client file from the secrets folder.",
-                  missing: "No Google sign-in file found — reinstall, or add your own google_client.json."}[S.client_source];
+  const client = {bundled: "You're all set — nothing else to configure.",
+                  own: "This hub is using a custom Google connection.",
+                  missing: "Something's missing. Please reinstall the app, or contact support."}[S.client_source];
   $("view").innerHTML = `
     <div class="card">
       <h1>Let's get your marketing data in one place.</h1>
@@ -156,8 +158,8 @@ function accounts() {
 }
 
 function renderTabs() {
-  $("srcTabs").innerHTML = [["ga4", "GA4"], ["gsc", "Search Console"]].map(([id, l]) =>
-    `<button class="${id === src ? "active" : ""}" onclick="src='${id}';selected.clear();renderTabs();loadList(false)">${l}</button>`).join("");
+  $("srcTabs").innerHTML = [["ga4", "GA4", "ga4.png"], ["gsc", "Search Console", "gsc.png"]].map(([id, l, icon]) =>
+    `<button class="${id === src ? "active" : ""}" onclick="src='${id}';selected.clear();renderTabs();loadList(false)"><img class="src-icon" src="/static/icons/${icon}" alt="">${l}</button>`).join("");
   $("loginTabs").innerHTML = connectedLogins().map(l =>
     `<button class="${l.identity === ident ? "active" : ""}" onclick="ident='${esc(l.identity)}';selected.clear();renderTabs();loadList(false)">${esc(l.label)}</button>`).join("");
 }
@@ -221,7 +223,7 @@ async function addSelected() {
 function renderConfigured() {
   const items = [];
   for (const [s, info] of Object.entries(S.connectors)) for (const a of info.accounts)
-    items.push(`<span class="pill">${esc(s === "ga4" ? "GA4" : s === "gsc" ? "GSC" : s)}: ${esc(a.label)} <span class="x" title="stop syncing this account" onclick="removeAccount('${esc(s)}','${esc(a.id)}','${esc(a.label)}')">remove ✕</span></span>`);
+    items.push(`<span class="pill">${sourceIcon(s)}${esc(a.label)} <span class="x" title="stop syncing this account" onclick="removeAccount('${esc(s)}','${esc(a.id)}','${esc(a.label)}')">remove ✕</span></span>`);
   $("confCount").textContent = items.length;
   $("configured").innerHTML = items.join("") || '<span class="muted">nothing yet</span>';
 }
@@ -279,7 +281,7 @@ function sync() {
       s.in_progress ? `${doneN} of ${accts.length} accounts done` : `finished — ${accts.reduce((n, a) => n + (a.rows || 0), 0).toLocaleString()} rows loaded`;
     $("syncTable").innerHTML = accts.map(a => `<tr>
       <td>${a.status === "done" ? '<span class="ok">✓</span>' : a.status === "error" ? '<span class="err">✗</span>' : a.status === "running" ? '<span class="spin"></span>' : '<span class="muted">·</span>'}</td>
-      <td>${esc(a.label)} <span class="muted">${esc(a.source.toUpperCase())}</span></td>
+      <td>${sourceIcon(a.source)}${esc(a.label)}</td>
       <td class="muted">${a.status === "error" ? `<span class="err">${esc(a.error)}</span>` : a.rows ? a.rows.toLocaleString() + " rows" : a.status === "done" ? "no data in the last 30 days" : a.status}</td></tr>`).join("");
     if (!s.in_progress && accts.length) {
       clearInterval(pollTimer); pollTimer = null;

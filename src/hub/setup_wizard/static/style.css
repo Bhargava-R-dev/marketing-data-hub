@@ -8,7 +8,8 @@ body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 .top { display: flex; justify-content: space-between; align-items: center; padding: .8rem 1.4rem;
        border-bottom: 1px solid var(--rule); }
 .brand { font-weight: 700; display: flex; align-items: center; gap: .6rem; }
-.mark { background: var(--accent); color: #fff; border-radius: 6px; padding: .1rem .45rem; font-size: .8rem; letter-spacing: .05em; }
+.mark { width: 28px; height: 28px; vertical-align: middle; object-fit: contain; }
+.src-icon { width: 20px; height: 20px; vertical-align: -5px; margin-right: .4rem; object-fit: contain; }
 .meta { font-size: .8rem; color: var(--muted); }
 .meta code { font-size: .75rem; }
 .banner { background: #f59e0b22; border-bottom: 1px solid #f59e0b66; padding: .5rem 1.4rem; font-size: .9rem; }
