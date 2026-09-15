@@ -33,9 +33,19 @@ class HubConfig(BaseModel):
     exports_dir: str = "exports"
     # the folder config.yaml lives in (set by load_config): logs, progress and
     # anything else "beside the config" derive from it, never from db_path
-    home: str = "."
+    home: str = ""
     connectors: dict[str, ConnectorSettings] = Field(default_factory=dict)
     exports: list[ExportConfig] = Field(default_factory=list)
+
+    def model_post_init(self, __context) -> None:
+        if not self.home:
+            # built directly rather than via load_config (every test does this,
+            # and it's a supported way to use HubConfig) - fall back to db_path's
+            # own location instead of the process's cwd, which could be any
+            # unrelated directory. This bit a test: with home defaulting to ".",
+            # it silently read THIS REPO's real logs/sync_progress.json instead
+            # of the isolated tmp_path the rest of the config pointed at.
+            self.home = str(Path(self.db_path).resolve().parent.parent)
 
 
 def load_config(path: str | Path = "config.yaml") -> HubConfig:

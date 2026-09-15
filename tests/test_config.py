@@ -77,3 +77,20 @@ def test_absolute_paths_left_untouched(tmp_path):
     cfgfile.write_text(f"db_path: {abs_db.as_posix()}\n", encoding="utf-8")
     cfg = load_config(cfgfile)
     assert Path(cfg.db_path) == abs_db
+
+
+def test_home_falls_back_to_db_path_when_built_directly(tmp_path):
+    """HubConfig() without load_config() (every test does this) must never
+    default 'home' to the process's cwd - that can silently read/write an
+    unrelated real directory instead of the isolated location the rest of
+    the config points at."""
+    cfg = HubConfig(db_path=str(tmp_path / "data" / "hub.duckdb"))
+    assert cfg.home == str(tmp_path)
+
+
+def test_load_config_sets_home_to_configs_own_folder(tmp_path):
+    cfg_path = tmp_path / "sub" / "config.yaml"
+    cfg_path.parent.mkdir()
+    cfg_path.write_text("db_path: elsewhere/hub.duckdb\nconnectors: {}\n", encoding="utf-8")
+    cfg = load_config(cfg_path)
+    assert cfg.home == str(cfg_path.parent)
