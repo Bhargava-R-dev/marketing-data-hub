@@ -35,10 +35,16 @@ function stepDone(i) { return i < furthestStep(); }
 // -------------------------------------------------------------- stepper
 function renderStepper() {
   const max = furthestStep();
-  $("stepper").innerHTML = STEPS.map((name, i) => `
-    <button class="${i === step ? "active" : ""} ${stepDone(i) ? "done" : ""}"
+  $("stepper").innerHTML = STEPS.map((name, i) => {
+    const done = stepDone(i);
+    const item = `<button class="step-item ${i === step ? "active" : ""} ${done ? "done" : ""}"
             ${i > max ? "disabled" : ""} onclick="go(${i})">
-      <span class="n">${stepDone(i) ? "✓" : i + 1}</span>${name}</button>`).join("");
+      <span class="step-circle">${done ? "✓" : i + 1}</span>
+      <span class="step-label">${esc(name)}</span></button>`;
+    // the connector before step i is "passed" once step i itself is reached
+    const line = i > 0 ? `<span class="step-line ${i <= step || stepDone(i) ? "passed" : ""}"></span>` : "";
+    return line + item;
+  }).join("");
   $("versionTag").textContent = "v" + (S?.version?.current || "");
   const b = $("updateBanner");
   if (S?.version?.update_available) {

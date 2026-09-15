@@ -15,15 +15,23 @@ body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 .banner { background: #f59e0b22; border-bottom: 1px solid #f59e0b66; padding: .5rem 1.4rem; font-size: .9rem; }
 .banner a { color: inherit; font-weight: 600; }
 
-.stepper { display: flex; gap: .3rem; padding: 1rem 1.4rem 0; max-width: 960px; margin: 0 auto; flex-wrap: wrap; }
-.stepper button { flex: 1 1 130px; border: 1px solid var(--rule); background: transparent; color: inherit;
-                  border-radius: 8px; padding: .5rem .6rem; text-align: left; font-size: .85rem; cursor: pointer; }
-.stepper button:disabled { opacity: .45; cursor: default; }
-.stepper button .n { display: inline-block; width: 1.4rem; height: 1.4rem; border-radius: 50%; text-align: center;
-                     line-height: 1.4rem; font-size: .75rem; background: var(--rule); margin-right: .4rem; }
-.stepper button.done .n { background: var(--ok); color: #fff; }
-.stepper button.active { border-color: var(--accent); background: #C8621C14; font-weight: 600; }
-.stepper button.active .n { background: var(--accent); color: #fff; }
+.stepper { display: flex; align-items: flex-start; padding: 1.1rem 1.4rem 0; max-width: 960px;
+           margin: 0 auto; flex-wrap: wrap; }
+.step-item { display: flex; flex-direction: column; align-items: center; gap: .35rem;
+             border: none; background: transparent; color: inherit; cursor: pointer;
+             padding: .45rem .8rem; border-radius: 10px; font-size: .82rem; white-space: nowrap; }
+.step-item:disabled { opacity: .4; cursor: default; }
+.step-item .step-circle { width: 26px; height: 26px; border-radius: 50%; display: flex;
+                          align-items: center; justify-content: center; font-size: .78rem;
+                          background: var(--rule); color: var(--muted); flex-shrink: 0; }
+.step-item.done .step-circle { background: var(--ok); color: #fff; }
+.step-item.active { background: #C8621C14; }
+.step-item.active .step-circle { background: var(--accent); color: #fff; font-weight: 600; }
+.step-item.active .step-label { color: var(--accent); font-weight: 600; }
+.step-line { flex: 1 1 20px; height: 2px; background: var(--rule); margin-top: 26px;
+             min-width: 12px; align-self: flex-start; }
+.step-line.passed { background: var(--accent-deep); }
+@media (max-width: 640px) { .step-item .step-label { display: none; } .step-item { padding: .45rem; } }
 
 .view { max-width: 960px; margin: 1.2rem auto 4rem; padding: 0 1.4rem; }
 .card { border: 1px solid var(--rule); border-radius: 12px; padding: 1.3rem 1.5rem; margin-bottom: 1rem; }
