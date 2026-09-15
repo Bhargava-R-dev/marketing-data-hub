@@ -124,24 +124,37 @@ class SearchConsoleConnector(BaseConnector):
                        report, date_from, date_to) -> list[dict]:
         results: list[dict] = []
         for site_url in site_urls:
-            site_rows: list[dict] = []
-            start_row = 0
-            while True:
-                body = {"startDate": date_from.isoformat(),
-                        "endDate": date_to.isoformat(),
-                        "dimensions": list(dims),
-                        "rowLimit": _ROW_LIMIT, "startRow": start_row}
-                resp = service.searchanalytics().query(
-                    siteUrl=site_url, body=body).execute()
-                page = resp.get("rows", [])
-                site_rows.extend(parse_gsc_response(
-                    resp, site_url, labels.get(site_url), dims))
-                if len(page) < _ROW_LIMIT:
-                    break
-                start_row += _ROW_LIMIT
-            if report == "queries" and brand_terms.get(site_url):
-                tag_branded(site_rows, brand_terms[site_url])
+            try:
+                site_rows = self._extract_one_site(
+                    service, site_url, dims, labels, brand_terms, report,
+                    date_from, date_to)
+            except Exception as exc:  # noqa: BLE001 - one bad site (no
+                # permission, deleted property, ...) must never block the rest
+                if self.progress_error:
+                    self.progress_error(site_url, str(exc))
+                continue
             results.extend(site_rows)
             if self.progress:
                 self.progress(site_url, labels.get(site_url, site_url), len(site_rows))
         return results
+
+    def _extract_one_site(self, service, site_url, dims, labels, brand_terms,
+                          report, date_from, date_to) -> list[dict]:
+        site_rows: list[dict] = []
+        start_row = 0
+        while True:
+            body = {"startDate": date_from.isoformat(),
+                    "endDate": date_to.isoformat(),
+                    "dimensions": list(dims),
+                    "rowLimit": _ROW_LIMIT, "startRow": start_row}
+            resp = service.searchanalytics().query(
+                siteUrl=site_url, body=body).execute()
+            page = resp.get("rows", [])
+            site_rows.extend(parse_gsc_response(
+                resp, site_url, labels.get(site_url), dims))
+            if len(page) < _ROW_LIMIT:
+                break
+            start_row += _ROW_LIMIT
+        if report == "queries" and brand_terms.get(site_url):
+            tag_branded(site_rows, brand_terms[site_url])
+        return site_rows

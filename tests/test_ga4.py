@@ -79,3 +79,35 @@ def test_other_in_any_dimension_is_dropped():
     ])
     out = parse_ga4_report(report, "1", "Sharekhan", reg.native_to_unified())
     assert len(out) == 1 and out[0]["country"] == "India"
+
+
+def test_one_property_failing_does_not_block_the_others(monkeypatch):
+    """A permission error on one property must not abort the rest of the
+    GA4 batch or mislabel properties that never even ran."""
+    from hub.connectors import ga4 as ga4_mod
+    from hub.core.config import ConnectorSettings
+
+    conn = ga4_mod.GA4Connector(ConnectorSettings(options={
+        "property_ids": ["1", "2"],
+        "labels": {"1": "Bad", "2": "Good"}}), ".")
+    conn._groups = {"default": ["1", "2"]}
+    conn._creds = {"default": object()}
+
+    def fake_fetch(self, client, registry, n2u, property_id, label, date_from, date_to):
+        if property_id == "1":
+            raise RuntimeError("403 insufficient permission")
+        return [{"account_id": "2", "account_name": "Good", "date": "2026-07-01"}]
+    monkeypatch.setattr(ga4_mod.GA4Connector, "_fetch", fake_fetch)
+    monkeypatch.setattr("google.analytics.data_v1beta.BetaAnalyticsDataClient",
+                        lambda credentials: object())
+
+    errors, progressed = [], []
+    conn.progress_error = lambda aid, err: errors.append((aid, err))
+    conn.progress = lambda aid, label, rows: progressed.append((aid, rows))
+
+    from datetime import date
+    rows = conn.extract_report("core", date(2026, 7, 1), date(2026, 7, 2))
+
+    assert errors == [("1", "403 insufficient permission")]
+    assert [aid for aid, _ in progressed] == ["2"]
+    assert rows == [{"account_id": "2", "account_name": "Good", "date": "2026-07-01"}]

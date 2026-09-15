@@ -59,3 +59,22 @@ def test_progress_lifecycle_writes_atomically(tmp_path):
 
 def test_read_missing_returns_none(tmp_path):
     assert SyncProgress.read(tmp_path / "nope.json") is None
+
+
+def test_account_error_marks_only_that_account(tmp_path):
+    path = tmp_path / "p.json"
+    p = SyncProgress(path)
+    p.begin([{"source": "gsc", "account_id": "1", "label": "A", "identity": "default"},
+             {"source": "gsc", "account_id": "2", "label": "B", "identity": "default"}])
+    p.account_error("gsc", "1", "no permission")
+    state = SyncProgress.read(path)
+    assert state["accounts"][0] == {"source": "gsc", "account_id": "1", "label": "A",
+                                    "identity": "default", "status": "error",
+                                    "rows": 0, "reports_done": 0, "error": "no permission"}
+    assert state["accounts"][1]["status"] == "pending"  # untouched
+
+
+def test_account_error_ignores_unknown_account(tmp_path):
+    p = SyncProgress(tmp_path / "p.json")
+    p.begin([])
+    p.account_error("gsc", "missing", "x")  # must not raise

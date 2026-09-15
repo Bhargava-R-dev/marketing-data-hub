@@ -71,6 +71,18 @@ class SyncProgress:
         a["status"] = "done" if a["reports_done"] >= reports_total else "running"
         self._write()
 
+    def account_error(self, source: str, account_id: str, error: str) -> None:
+        """One account failed on its own (e.g. a permission error specific to
+        that property) - record it against just that account, leaving every
+        other account's status untouched so a single bad site can't make
+        unrelated, never-attempted accounts look like they failed too."""
+        a = self._find(source, account_id)
+        if a is None:
+            return
+        a["status"] = "error"
+        a["error"] = error
+        self._write()
+
     def source_error(self, source: str, error: str) -> None:
         for a in self._state["accounts"]:
             if a["source"] == source and a["status"] != "done":

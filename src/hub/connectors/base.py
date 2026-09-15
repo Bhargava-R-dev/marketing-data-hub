@@ -90,6 +90,11 @@ class BaseConnector(ABC):
         # optional (account_id, label, rows_this_report) hook the sync engine
         # sets so per-account progress can be shown live
         self.progress = None
+        # optional (account_id, error) hook: a connector calls this instead of
+        # raising when ONE account's fetch fails (e.g. missing permission on
+        # that property) - keeps the rest of the batch running and records the
+        # failure against just that account, not every account still pending
+        self.progress_error = None
 
     @classmethod
     def get_reports(cls) -> dict[str, FieldRegistry]:

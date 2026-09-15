@@ -25,6 +25,8 @@ def run_sync(storage: Storage, connector: BaseConnector,
         n_reports = len(connector.enabled_reports())
         connector.progress = lambda aid, label, rows: progress.account_update(
             connector.id, aid, rows, n_reports)
+        connector.progress_error = lambda aid, err: progress.account_error(
+            connector.id, aid, err)
     last_exc: Exception | None = None
     for attempt in range(max(1, retries)):
         try:
