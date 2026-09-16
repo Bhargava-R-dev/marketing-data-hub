@@ -106,12 +106,18 @@ exact path. If you ever want to start fresh, delete that folder.
 Copy-paste this one line and press **Enter**:
 
 ```
-pip install marketing-data-hub
+python3 -m pip install marketing-data-hub
 ```
 
 You'll see a lot of text scroll by for a minute or two while it downloads. When
 the cursor comes back and stops scrolling, it's done. (If you see a note about
 "a new release of pip is available," ignore it — that's harmless.)
+
+> **Why `python3 -m pip` and not just `pip`?** On a Mac with more than one
+> Python installed (very common — macOS ships one, and installers add more),
+> plain `pip` can quietly install into a *different* Python than the `python3`
+> you'll use next. Using `python3 -m pip install ...` guarantees it installs
+> into the exact Python that will run the tool.
 
 ### Step 5 — Sign-in file: built in
 
@@ -131,10 +137,12 @@ That's the whole installation. Now the fun part.
 In the command window, type:
 
 ```
-hub setup
+python3 -m hub.cli setup
 ```
 
-and press **Enter**. After a second, **a page opens in your web browser** titled
+and press **Enter**. (This is the same `python3` from Step 4, so it always
+finds the tool — plain `hub` can fail with "command not found" if it's not
+on your PATH, even though the install worked.) After a second, **a page opens in your web browser** titled
 "Marketing Data Hub — Setup." This friendly page is where you'll do everything
 next — no more typing commands. Keep the command window open in the
 background (don't close it while you're using the wizard).

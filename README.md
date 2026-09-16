@@ -16,9 +16,14 @@ and run it — the setup page opens in your browser.
 **Anywhere with Python 3.11+:**
 
 ```bash
-pip install marketing-data-hub
-hub setup
+python3 -m pip install marketing-data-hub
+python3 -m hub.cli setup
 ```
+
+(Use `python3 -m pip`/`python3 -m hub.cli` rather than bare `pip`/`hub` —
+on Mac especially, `pip` on your PATH can point at a different Python than
+`python3`, so a bare `pip install` can succeed while `hub` still isn't found.
+`python3 -m ...` always installs into and runs from the same interpreter.)
 
 (Developers: `git clone https://github.com/Bhargava-R-dev/marketing-data-hub`
 and `pip install -e ".[dev]"` instead.)
