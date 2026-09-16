@@ -8,8 +8,8 @@
 AppId={{7E1C5C1A-2B2E-4B9E-9C2A-4D6F8A1B2C3D}
 AppName={#AppName}
 AppVersion={#AppVersion}
-AppPublisher=Growth by Bhargava
-AppPublisherURL=https://growthbybhargava.com/tools/marketing-data-hub
+AppPublisher=Marketing Data Hub
+AppPublisherURL=https://github.com/Bhargava-R-dev/marketing-data-hub
 AppSupportURL=https://github.com/Bhargava-R-dev/marketing-data-hub/issues
 DefaultDirName={localappdata}\Programs\MarketingDataHub
 DisableProgramGroupPage=yes
