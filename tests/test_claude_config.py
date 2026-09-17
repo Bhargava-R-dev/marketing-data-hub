@@ -57,6 +57,45 @@ def test_write_entry_creates_file_when_missing(tmp_path):
     assert json.loads(cfg.read_text(encoding="utf-8"))["mcpServers"]["marketing-hub"]["args"] == ["mcp"]
 
 
+def test_invalid_config_is_not_overwritten(tmp_path):
+    cfg = tmp_path / "claude.json"
+    cfg.write_text("{broken", encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid JSON"):
+        cc.write_mcp_entry(cfg, "hub.exe", ["mcp"])
+    assert cfg.read_text(encoding="utf-8") == "{broken"
+
+
+@pytest.mark.parametrize("content", ["[]", "null", '{"mcpServers": []}'])
+def test_wrong_config_shape_is_not_overwritten(tmp_path, content):
+    cfg = tmp_path / "claude.json"
+    cfg.write_text(content, encoding="utf-8")
+    assert cc.is_registered(cfg) is False
+    with pytest.raises(ValueError):
+        cc.write_mcp_entry(cfg, "hub.exe", ["mcp"])
+    assert cfg.read_text(encoding="utf-8") == content
+
+
+def test_stale_command_is_not_reported_connected(tmp_path, monkeypatch):
+    cfg = tmp_path / "claude.json"
+    hub = tmp_path / "config.yaml"
+    cc.write_mcp_entry(cfg, "missing-python", ["-m", "hub.cli", "mcp", "--config", str(hub)])
+    monkeypatch.setattr(cc, "desktop_config_candidates", lambda: [cfg])
+    assert cc.detect(hub)["targets"][0]["registered"] is False
+    cc.write_mcp_entry(cfg, *cc.mcp_command(hub))
+    assert cc.detect(hub)["targets"][0]["registered"] is True
+
+
+def test_code_repair_replaces_only_hub_entry(tmp_path, monkeypatch):
+    cfg = tmp_path / ".claude.json"
+    cfg.write_text(json.dumps({"mcpServers": {"other": {"command": "keep"},
+                                              "marketing-hub": {"command": "old"}}}), encoding="utf-8")
+    monkeypatch.setattr(cc, "code_config_path", lambda: cfg)
+    cc.register_with_cli("hub.exe", ["mcp"])
+    servers = json.loads(cfg.read_text(encoding="utf-8"))["mcpServers"]
+    assert servers["other"]["command"] == "keep"
+    assert servers["marketing-hub"]["command"] == "hub.exe"
+
+
 def test_is_registered(tmp_path):
     cfg = tmp_path / "c.json"
     assert cc.is_registered(cfg) is False

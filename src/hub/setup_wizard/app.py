@@ -5,7 +5,6 @@ import subprocess
 import sys
 import threading
 import time
-import webbrowser
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +12,7 @@ import duckdb
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from hub.core.config import load_config
 from hub.core.progress import SyncProgress
@@ -39,6 +39,8 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
     home = config_path.parent
     progress_file = home / "logs" / "sync_progress.json"
     app = FastAPI(title="Marketing Data Hub Setup")
+    app.add_middleware(TrustedHostMiddleware,
+                       allowed_hosts=["127.0.0.1", "localhost"])
     # same-process "Open dashboard"; its rows link back here to add/remove
     app.include_router(dashboard_router(config_path, manage_url="/#accounts"))
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -48,9 +50,15 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
     discovery_cache: dict[tuple[str, str], list[dict]] = {}
     state = {"shutdown": False, "last_seen": time.time()}
     app.state.hub = state  # run_setup watches last_seen to exit when idle
+    sync_lock = threading.Lock()
+    sync_job = {"process": None, "error": None, "previous_run": None}
 
     @app.middleware("http")
     async def _touch(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "foreign origin"}, status_code=403)
         state["last_seen"] = time.time()
         return await call_next(request)
 
@@ -263,32 +271,55 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
     def _sync_argv() -> tuple[str, list[str]]:
         # --unattended: a dead token must show up as an error row in the Sync
         # step, never as a surprise browser tab opened by a background process
-        from hub.core.paths import python_exe
-
-        args = ["sync", "all", "--unattended", "--config", str(config_path)]
-        if getattr(sys, "frozen", False):
-            return sys.executable, args
-        return python_exe(), ["-m", "hub.cli", *args]
+        from hub.core.schedule import sync_command
+        return sync_command(config_path)
 
     @app.post("/api/sync")
     def post_sync(request: Request) -> dict:
         check_token(request)
-        log_path = home / "logs" / "setup_sync.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as log:
-            log.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] setup wizard sync\n")
-            log.flush()
-            exe, args = _sync_argv()
-            subprocess.Popen([exe, *args], stdout=log, stderr=subprocess.STDOUT,
-                             stdin=subprocess.DEVNULL,
-                             creationflags=(subprocess.CREATE_NO_WINDOW
-                                            if sys.platform == "win32" else 0))
-        return {"status": "started"}
+        # FastAPI handlers run concurrently. Reserve the launch before the child
+        # can write a progress file; a second tab must not launch another child.
+        with sync_lock:
+            proc = sync_job["process"]
+            if proc is not None and proc.poll() is None:
+                return {"status": "already_running"}
+            sync_job["error"] = None
+            sync_job["previous_run"] = SyncProgress.read(progress_file)
+            try:
+                exe, args = _sync_argv()
+                log_path = home / "logs" / "setup_sync.log"
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                with log_path.open("a", encoding="utf-8") as log:
+                    log.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] setup wizard sync\n")
+                    log.flush()
+                    sync_job["process"] = subprocess.Popen(
+                        [exe, *args], stdout=log, stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL,
+                        creationflags=(subprocess.CREATE_NO_WINDOW
+                                       if sys.platform == "win32" else 0))
+            except OSError as exc:
+                sync_job["process"] = None
+                sync_job["error"] = f"Unable to start sync: {exc}"
+                return {"status": "failed", "error": sync_job["error"]}
+            return {"status": "started"}
 
     @app.get("/api/sync/status")
     def get_sync_status(request: Request) -> dict:
         check_token(request)
         run = SyncProgress.read(progress_file)
+        with sync_lock:
+            proc = sync_job["process"]
+            if proc is not None:
+                code = proc.poll()
+                # An old success file must not make a new starting job look done.
+                if run == sync_job["previous_run"]:
+                    run = None
+                error = None
+                if code is not None and (code != 0 or run is None or run["finished_at"] is None):
+                    error = f"Sync stopped (exit code {code}). See logs/setup_sync.log, then retry."
+                return {"in_progress": code is None, "run": run, "error": error}
+            if sync_job["error"]:
+                return {"in_progress": False, "run": None, "error": sync_job["error"]}
         if run is not None:
             return {"in_progress": run["finished_at"] is None, "run": run}
         # no progress file yet (never synced, or an older version): fall back
@@ -376,12 +407,6 @@ def create_setup_app(config_path: str | Path) -> FastAPI:
         check_token(request)
         state["shutdown"] = True
 
-        def stop():
-            time.sleep(0.5)
-            import os
-            os._exit(0)  # uvicorn has no clean stop from a handler; wizard is done
-
-        threading.Thread(target=stop, daemon=True).start()
         return {"status": "bye"}
 
     return app
@@ -392,8 +417,6 @@ def run_setup(config_path: str | Path, port: int = 8770,
     """Serve the wizard on localhost and open it in the default browser.
     Exits on its own after idle_minutes without any page activity, so a
     shortcut launch (no console) never leaves a stray process behind."""
-    import os
-
     if sys.stdout is None or sys.stderr is None:
         # launched from a shortcut via pythonw.exe: no console at all. uvicorn's
         # log handlers need a real stream, so keep everything in a log file
@@ -402,18 +425,9 @@ def run_setup(config_path: str | Path, port: int = 8770,
         stream = open(log_dir / "wizard.log", "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         sys.stdout = sys.stderr = stream
 
-    import uvicorn
+    from hub.core.local_server import serve_local
 
     app = create_setup_app(config_path)
     url = f"http://127.0.0.1:{port}"
-    if open_browser:
-        threading.Timer(1.0, webbrowser.open, args=[url]).start()
-    if idle_minutes > 0:
-        def watchdog():
-            while True:
-                time.sleep(30)
-                if time.time() - app.state.hub["last_seen"] > idle_minutes * 60:
-                    os._exit(0)
-        threading.Thread(target=watchdog, daemon=True).start()
     print(f"Setup wizard: {url}  (Ctrl+C to stop)")
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    serve_local(app, port, open_browser=open_browser, idle_minutes=idle_minutes)

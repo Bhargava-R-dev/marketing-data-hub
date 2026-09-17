@@ -90,7 +90,7 @@ def test_dashboard_app_page_and_data_endpoint(tmp_path):
         "connectors:\n  ga4:\n    options: {property_ids: ['p1','p2'], "
         "identities: {p2: personal}}\n  gsc:\n    options: {site_urls: ['s1']}\n",
         encoding="utf-8")
-    client = TestClient(create_dashboard_app(cfg_path))
+    client = TestClient(create_dashboard_app(cfg_path), base_url="http://127.0.0.1")
     assert "Your Data" in client.get("/dashboard").text
     assert "Your Data" in client.get("/").text
     body = client.get("/api/dashboard-data").json()
@@ -106,7 +106,7 @@ def test_dashboard_mounted_inside_wizard(tmp_path):
         f"db_path: {cfg.db_path}\nsecrets_dir: {cfg.secrets_dir}\n"
         "connectors:\n  ga4:\n    options: {property_ids: ['p1','p2']}\n",
         encoding="utf-8")
-    client = TestClient(create_setup_app(cfg_path))
+    client = TestClient(create_setup_app(cfg_path), base_url="http://127.0.0.1")
     # dashboard routes work WITHOUT the wizard's setup token (read-only, no gate)
     r = client.get("/api/dashboard-data")
     assert r.status_code == 200
@@ -173,5 +173,5 @@ def test_wizard_dashboard_has_manage_link(tmp_path):
     from hub.setup_wizard import create_setup_app
     cfg = tmp_path / "config.yaml"
     cfg.write_text("db_path: data/t.duckdb\nsecrets_dir: secrets\nconnectors: {}\n", encoding="utf-8")
-    page = TestClient(create_setup_app(cfg)).get("/dashboard").text
+    page = TestClient(create_setup_app(cfg), base_url="http://127.0.0.1").get("/dashboard").text
     assert "Add or remove accounts" in page

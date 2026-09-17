@@ -12,12 +12,10 @@ TASK_NAME = "MarketingDataHub Daily Sync"
 
 
 def sync_command(config_path: Path) -> tuple[str, list[str]]:
-    from hub.core.paths import python_exe
+    from hub.core.paths import cli_command
 
-    if getattr(sys, "frozen", False):
-        return sys.executable, ["sync", "all", "--unattended", "--config", str(config_path)]
-    return python_exe(), ["-m", "hub.cli", "sync", "all", "--unattended",
-                          "--config", str(config_path)]
+    command = cli_command("sync", "all", "--unattended", "--config", str(config_path))
+    return command[0], command[1:]
 
 
 def _ps_quote(s: str) -> str:

@@ -19,7 +19,7 @@ def launcher_command(config_path: Path | None = None) -> tuple[str, str]:
     if getattr(sys, "frozen", False):
         gui = Path(sys.executable).with_name("MarketingDataHub.exe")
         if gui.exists():
-            return str(gui), ""  # windowed build: opens the home page, no console
+            return str(gui), args if config_path is not None else ""
         return sys.executable, args
     exe = sys.executable
     if exe.lower().endswith("python.exe"):

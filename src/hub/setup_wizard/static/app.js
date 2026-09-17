@@ -8,7 +8,9 @@ const sourceIcon = (s) => SOURCE_ICONS[s] ? `<img class="src-icon" src="/static/
 
 async function api(path, opts) {
   const r = await fetch(path, Object.assign({headers: H}, opts || {}));
-  return r.json();
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.detail || `Request failed (${r.status})`);
+  return body;
 }
 
 // ---------------------------------------------------------------- state
@@ -255,7 +257,13 @@ async function saveGoogleAds() {
 }
 
 // ---------------------------------------------------------------- 4 sync
-async function startSyncFlow() { await api("/api/sync", {method: "POST"}); go(3); }
+async function startSyncFlow() {
+  try {
+    const result = await api("/api/sync", {method: "POST"});
+    if (result.error) { alert(result.error); return; }
+    go(3);
+  } catch (error) { alert(`Unable to start sync: ${error.message}`); }
+}
 
 function sync() {
   $("view").innerHTML = `
@@ -271,29 +279,31 @@ function sync() {
         <button class="btn primary" id="toClaude" onclick="go(4)" disabled>Continue →</button>
       </div>
     </div>`;
-  let autoStarted = false;
+  let polling = false;
   const tick = async () => {
+    if (polling || step !== 3) return;
+    polling = true;
+    try {
     const s = await api("/api/sync/status");
-    if (!s.in_progress && !s.run && !autoStarted) {
-      // landed here with accounts configured but nothing ever synced: just go
-      autoStarted = true;
-      await api("/api/sync", {method: "POST"});
-      return;
-    }
+    if (step !== 3) return;
     const accts = s.run?.accounts || [];
     const doneN = accts.filter(a => a.status === "done" || a.status === "error").length;
     $("bar").style.width = accts.length ? `${Math.round(100 * doneN / accts.length)}%` : "0%";
-    $("syncSummary").textContent = !accts.length ? "starting…" :
-      s.in_progress ? `${doneN} of ${accts.length} accounts done` : `finished — ${accts.reduce((n, a) => n + (a.rows || 0), 0).toLocaleString()} rows loaded`;
+    $("syncSummary").textContent = s.error || (!accts.length ?
+      (s.in_progress ? "starting…" : s.run ? "Sync finished — no accounts configured." : "No sync is running. Choose Run again to start.") :
+      s.in_progress ? `${doneN} of ${accts.length} accounts done` : `finished — ${accts.reduce((n, a) => n + (a.rows || 0), 0).toLocaleString()} rows loaded`);
     $("syncTable").innerHTML = accts.map(a => `<tr>
       <td>${a.status === "done" ? '<span class="ok">✓</span>' : a.status === "error" ? '<span class="err">✗</span>' : a.status === "running" ? '<span class="spin"></span>' : '<span class="muted">·</span>'}</td>
       <td>${sourceIcon(a.source)}${esc(a.label)}</td>
       <td class="muted">${a.status === "error" ? `<span class="err">${esc(a.error)}</span>` : a.rows ? a.rows.toLocaleString() + " rows" : a.status === "done" ? "no data in the last 30 days" : a.status}</td></tr>`).join("");
-    if (!s.in_progress && accts.length) {
+    if (!s.in_progress && s.run) {
       clearInterval(pollTimer); pollTimer = null;
       $("toClaude").disabled = false;
       await refresh();
     }
+    } catch (error) {
+      if (step === 3) $("syncSummary").textContent = `Unable to read sync status: ${error.message}`;
+    } finally { polling = false; }
   };
   tick(); pollTimer = setInterval(tick, 3000);
 }
