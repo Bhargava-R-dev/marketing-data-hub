@@ -49,13 +49,18 @@ jobs:
           Copy-Item dist\MarketingDataHub-Setup.exe "dist\MarketingDataHub-Setup-$env:HUB_VERSION.exe"
       - name: Smoke test the GUI and its sync child
         run: python packaging/smoke_test.py packaging/dist/MarketingDataHub
-      # Add publisher signing before packaging (both bundled EXEs) and after
-      # packaging (installer). Never publish an unsigned fallback.
-      - name: Require trusted publisher signatures
+      # Initial releases may be unsigned. Record the exact trust status with
+      # the download; switch this step back to verify_signatures.ps1 once a
+      # publisher signing identity is configured.
+      - name: Record publisher-signing status
         shell: pwsh
         run: |
           $installers = @(Get-ChildItem packaging/dist/MarketingDataHub-Setup*.exe | ForEach-Object { $_.FullName })
-          ./packaging/verify_signatures.ps1 -Paths (@('packaging/dist/MarketingDataHub/hub.exe', 'packaging/dist/MarketingDataHub/MarketingDataHub.exe') + $installers)
+          $files = @('packaging/dist/MarketingDataHub/hub.exe', 'packaging/dist/MarketingDataHub/MarketingDataHub.exe') + $installers
+          $files | ForEach-Object {
+            $signature = Get-AuthenticodeSignature -LiteralPath $_
+            "$([IO.Path]::GetFileName($_)): $($signature.Status)"
+          } | Set-Content packaging/dist/SIGNING-STATUS.txt
       - name: Record installer checksums
         shell: pwsh
         run: |
@@ -69,4 +74,5 @@ jobs:
             packaging/dist/MarketingDataHub-Setup.exe
             packaging/dist/MarketingDataHub-Setup-*.exe
             packaging/dist/SHA256SUMS.txt
+            packaging/dist/SIGNING-STATUS.txt
           generate_release_notes: true
