@@ -43,26 +43,37 @@ Do **not** add `yt-analytics.readonly` or `adwords` now — they add review time
 ## F. Screencast (record before submitting; unlisted YouTube link)
 
 **Rejection so far: "Your demo video does not show the OAuth consent flow."**
-Google's reviewer needs to clearly SEE the actual Google permission screen —
-not just click past it. The single most common reason this gets rejected is
-recording at normal speed and clicking "Allow" before the screen is even
-fully rendered, so the reviewer can't read it back. Fix: maximize the browser
-window first, and **pause for a full 3–5 seconds** on the permission screen
-itself before clicking anything.
+Diagnosed directly from the rejected video (extracted frames with ffmpeg):
+the recording account had **already granted this app access** from earlier
+testing, so Google skipped the real screen and only ever showed the
+shortcut "You're signing back in to Marketing Data Hub" / "Marketing Data
+Hub already has some access — see the 4 services" screen — the itemized
+scope list stays collapsed and never appears on screen. That's what's
+actually missing, not a pacing problem.
+
+**Fix — do this before recording:**
+- [ ] Go to [myaccount.google.com/permissions](https://myaccount.google.com/permissions),
+  find **Marketing Data Hub**, and remove its access for whichever account
+  you'll demo with. This forces Google to show the full first-time consent
+  screen again on the next sign-in.
+- [ ] Maximize the browser window before recording so the screen is legible.
 
 ~2 minutes, screen recording with the browser **maximized** and the URL bar
 always visible:
 1. Open `https://growthbybhargava.com/tools/marketing-data-hub`, scroll to show the download and privacy link.
 2. Run `hub setup`; the setup page opens.
 3. Click "Connect Google". A new tab opens at `accounts.google.com` and shows
-   an account picker — pick the account. **This is not the consent screen
-   yet — keep recording.**
-4. The *next* screen is the real one: still on `accounts.google.com`, titled
-   something like "Marketing Data Hub wants to access your Google Account",
-   listing the app name/logo and the three permissions (Google Analytics,
-   Search Console, email address) with **Cancel** / **Continue** buttons.
-   **Stop and hold on this exact screen for 3–5 seconds** — this is the part
-   the reviewer checks for. Only then click **Continue**/**Allow**.
+   an account picker — pick the account you just revoked access for. **This
+   account picker is not the consent screen yet — keep recording.**
+4. The *next* screen is the real one, still on `accounts.google.com`:
+   "Marketing Data Hub wants to access your Google Account", listing the
+   app name/logo and each permission individually — Google Analytics,
+   Search Console, and your email address — with **Cancel** / **Continue**
+   buttons. If you instead see "already has some access" or "signing back
+   in", the account wasn't fully revoked — stop and redo step 0 above before
+   continuing.
+   **Hold on this exact itemized screen for 3–5 seconds** before clicking
+   **Continue**/**Allow** — this is the part the reviewer checks for.
 5. Back in the setup page, show the account list, tick one GA4 property and one GSC site, start the sync.
 6. Show the sync finishing and the dashboard listing rows — say (in a caption or voice) "all data is stored locally in this folder", and show the folder.
 7. Show `myaccount.google.com/permissions` with the app listed, to demonstrate revocation.
