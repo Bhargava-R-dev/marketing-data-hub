@@ -16,9 +16,11 @@ def test_mcp_command_pip(monkeypatch, tmp_path):
 
 def test_mcp_command_frozen(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
-    monkeypatch.setattr(sys, "executable", r"C:\Apps\hub.exe")
+    cli = tmp_path / "hub.exe"
+    cli.touch()
+    monkeypatch.setattr(sys, "executable", str(cli))
     cmd, args = cc.mcp_command(tmp_path / "config.yaml")
-    assert cmd == r"C:\Apps\hub.exe"
+    assert cmd == str(cli)
     assert args == ["mcp", "--config", str(tmp_path / "config.yaml")]
 
 
