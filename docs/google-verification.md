@@ -106,6 +106,12 @@ just watch in a video.
 - [ ] Give it access to at least one real (or dummy) GA4 property and Search
   Console site, so the reviewer sees actual data after connecting, not an
   empty list.
+- [ ] Confirmed 2026-09-17: the app is already in **Production**, so this
+  account does **not** need to be added as an Audience → Test user — that
+  list only applies to apps still in Testing status. It just signs in
+  through the normal flow (same "Google hasn't verified this app" screen
+  real users see). Do **not** revert the app to Testing status for this —
+  that would bring back the 7-day token-expiry bug for every real user.
 - [ ] Keep the email + password somewhere you control (a password manager) —
   you'll paste them into the email reply yourself; don't hand them to anyone
   else, and delete/rotate the account once verification is approved.
