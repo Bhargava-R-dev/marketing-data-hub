@@ -89,10 +89,80 @@ scope list back from the video, neither can the reviewer.
   - Demo video: the unlisted link from F.
 - [ ] Submit. Expect 2–6 weeks; Google emails follow-up questions to the developer contact address — answer them promptly (they close the ticket after ~7 days of silence).
 
+## G2. Responding to a Trust & Safety rejection email
+
+Google's first response (2026-09-17) asked for four things at once. Two are
+already done (privacy policy §4/§5, new demo video). Two are new and need a
+**test Google account** — a real login the reviewer can use themselves, not
+just watch in a video.
+
+**One-time: create a disposable test account**
+- [ ] Create a fresh Google account used for nothing else (or reuse a spare
+  one with no sensitive data) — do **not** use `rallabandibhargava@gmail.com`
+  or any client account for this.
+- [ ] On that account: Google Account → Security → 2-Step Verification →
+  **Off**. Also check there's no phone-number-verification prompt configured
+  — the reviewer must be able to sign in with just email + password, no OTP.
+- [ ] Give it access to at least one real (or dummy) GA4 property and Search
+  Console site, so the reviewer sees actual data after connecting, not an
+  empty list.
+- [ ] Keep the email + password somewhere you control (a password manager) —
+  you'll paste them into the email reply yourself; don't hand them to anyone
+  else, and delete/rotate the account once verification is approved.
+
+**Two separate actions — both are required, don't skip either:**
+
+1. **Reply to the SAME email thread** from Google's Trust and Safety team
+   (do not start a new email) with:
+
+   > Hi, thanks for the detailed feedback. We've addressed the items below:
+   >
+   > - Demo video showing the OAuth consent flow (scopes fully expanded):
+   >   **[paste the new unlisted YouTube link]**
+   > - Privacy policy updated with data sharing/disclosure and data protection
+   >   sections: https://growthbybhargava.com/privacy (see "4. Sharing and
+   >   disclosure of your data" and "5. Security of your data")
+   > - Test credentials for reviewing the OAuth flow directly (2FA disabled):
+   >   - Email: **[test account email]**
+   >   - Password: **[test account password]**
+   >
+   > Navigation instructions to reach the OAuth consent screen:
+   > 1. Download the Windows installer from
+   >    https://growthbybhargava.com/tools/marketing-data-hub and run it (or,
+   >    on any OS with Python 3.11+: `pip install marketing-data-hub && hub setup`).
+   > 2. The Setup page opens automatically in your browser at
+   >    http://127.0.0.1:8770. Click **"Get started"** on the Welcome step.
+   > 3. On the **Connect Google** step, click **"Sign in with Google"**.
+   > 4. Sign in with the test account above. Google's OAuth consent screen
+   >    appears listing the requested permissions (Google Analytics read-only,
+   >    Search Console read-only, email address). If any are collapsed under a
+   >    "Show all services" or "See all" link, click it to expand the full
+   >    list before continuing.
+   > 5. Click **Continue**/**Allow**. You're returned to the Setup page with
+   >    the account connected.
+   >
+   > Please let us know if anything else is needed.
+
+2. **Separately, click "resubmit your app"** (the link in the same email) in
+   Cloud Console, and fill in:
+   - [ ] Link to the login page + the same step-by-step navigation
+     instructions as above (with "2FA disabled" noted explicitly).
+   - [ ] Link to the privacy policy for data-sharing disclosures:
+     `https://growthbybhargava.com/privacy` (section 4).
+   - [ ] Link to the privacy policy for data-protection disclosures:
+     `https://growthbybhargava.com/privacy` (section 5) — same URL is fine
+     for both fields, they're both on that page.
+
+- [ ] After sending the email reply AND resubmitting in Cloud Console, wait
+  for the next review pass. Check the test account's 2FA is still off if
+  this drags on (Google sometimes re-enables it automatically after a
+  security event).
+
 ## After approval
 
 - [ ] Sign in once with a fresh Google account to confirm the "unverified app" warning is gone.
 - [ ] Tell Claude Code — the wizard's Welcome copy can then drop the "you may see a warning" note.
+- [ ] Delete or rotate the disposable test account's password now that it's no longer needed.
 
 ## H. PyPI trusted publishing (one time, needed for automated releases)
 
