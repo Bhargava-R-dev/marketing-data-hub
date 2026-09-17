@@ -18,7 +18,7 @@ def wizard(tmp_path):
         "      labels: {'https://a.example/': 'Site A'}}\n",
         encoding="utf-8")
     app = create_setup_app(cfg)
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")
     # fish the per-run token out of the served page (as the browser would)
     page = client.get("/").text
     token = page.split('const TOKEN = "')[1].split('"')[0]
@@ -33,6 +33,59 @@ def test_page_serves_and_embeds_config_path(wizard):
     assert 'const TOKEN = "' in page
 
 
+def test_concurrent_sync_requests_spawn_once_and_track_startup(wizard, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from unittest.mock import Mock
+
+    client, headers, _ = wizard
+    child = Mock()
+    child.poll.return_value = None
+    launch = Mock(return_value=child)
+    monkeypatch.setattr("hub.setup_wizard.app.subprocess.Popen", launch)
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(lambda _: client.post("/api/sync", headers=headers).json(), range(6)))
+    assert sum(r["status"] == "started" for r in results) == 1
+    assert launch.call_count == 1
+    assert client.get("/api/sync/status", headers=headers).json()["in_progress"] is True
+    child.poll.return_value = 1
+    status = client.get("/api/sync/status", headers=headers).json()
+    assert status["in_progress"] is False
+    assert "exit code 1" in status["error"]
+    # Polling and opening a new page never relaunch a failed child.
+    client.get("/")
+    client.get("/api/sync/status", headers=headers)
+    assert launch.call_count == 1
+    assert client.post("/api/sync", headers=headers).json()["status"] == "started"
+
+
+def test_sync_spawn_failure_is_visible_and_retryable(wizard, monkeypatch):
+    from unittest.mock import Mock
+    client, headers, _ = wizard
+    launch = Mock(side_effect=FileNotFoundError("hub.exe missing"))
+    monkeypatch.setattr("hub.setup_wizard.app.subprocess.Popen", launch)
+    assert client.post("/api/sync", headers=headers).json()["status"] == "failed"
+    status = client.get("/api/sync/status", headers=headers).json()
+    assert status["in_progress"] is False
+    assert "hub.exe missing" in status["error"]
+
+
+def test_previous_success_cannot_mask_starting_or_failed_child(wizard, monkeypatch, tmp_path):
+    from unittest.mock import Mock
+    from hub.core.progress import SyncProgress
+    client, headers, _ = wizard
+    progress = SyncProgress(tmp_path / "logs/sync_progress.json")
+    progress.begin([])
+    progress.finish()
+    child = Mock()
+    child.poll.return_value = None
+    monkeypatch.setattr("hub.setup_wizard.app.subprocess.Popen", Mock(return_value=child))
+    client.post("/api/sync", headers=headers)
+    status = client.get("/api/sync/status", headers=headers).json()
+    assert status["in_progress"] is True and status["run"] is None
+    child.poll.return_value = 0
+    assert client.get("/api/sync/status", headers=headers).json()["error"]
+
+
 def test_state_requires_token(wizard):
     client, headers, _ = wizard
     assert client.get("/api/state").status_code == 403
@@ -42,6 +95,13 @@ def test_state_requires_token(wizard):
     body = r.json()
     assert body["connectors"]["gsc"]["accounts"] == [
         {"id": "https://a.example/", "label": "Site A", "identity": "default"}]
+
+
+def test_foreign_host_and_origin_are_rejected(wizard):
+    client, headers, _ = wizard
+    assert client.get("/", headers={"Host": "attacker.example"}).status_code == 400
+    assert client.post("/api/sync", headers={**headers, "Origin": "https://attacker.example"}).status_code == 403
+    assert client.get("/api/sync/status", headers={**headers, "Origin": "http://127.0.0.1"}).status_code == 200
 
 
 def test_state_reports_identities(wizard, tmp_path):

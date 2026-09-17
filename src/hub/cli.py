@@ -92,11 +92,17 @@ def sync(source: str = typer.Argument("all"), config: str = CONFIG_OPT,
 @app.command()
 def backfill(source: str, config: str = CONFIG_OPT,
              from_: str = typer.Option(..., "--from", help="YYYY-MM-DD"),
-             to: str | None = typer.Option(None, "--to", help="YYYY-MM-DD")):
+             to: str | None = typer.Option(None, "--to", help="YYYY-MM-DD"),
+             unattended: bool = typer.Option(False, "--unattended",
+                                              help="Never open a sign-in browser")):
     """Backfill history in <=90-day chunks."""
     from hub.connectors.catalog import build_connector
     from hub.core.storage import Storage
     from hub.core.sync import backfill as run_backfill
+
+    if unattended:
+        import os
+        os.environ["HUB_UNATTENDED"] = "1"
 
     try:
         date_from = datetime.strptime(from_, "%Y-%m-%d").date()

@@ -3,5 +3,6 @@ import sys
 from hub.cli import app
 
 if __name__ == "__main__":
-    sys.argv = [sys.argv[0], "setup"]  # windowed: always the home page
+    if len(sys.argv) == 1:
+        sys.argv.append("setup")
     app()

@@ -24,3 +24,7 @@ dist/
 .gstack/
 build/
 packaging/dist/
+.tmp/
+.test-*/
+.pyinstaller-cache/
+pytest-cache-files-*/

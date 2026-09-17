@@ -3,7 +3,17 @@ on:
   push:
     tags: ["v*"]
 jobs:
+  tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
   wheel:
+    needs: [tests, installer]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -16,6 +26,7 @@ jobs:
       - run: python -m pip install build && python -m build
       - uses: pypa/gh-action-pypi-publish@release/v1
   installer:
+    needs: tests
     runs-on: windows-latest
     permissions:
       contents: write
@@ -36,11 +47,26 @@ jobs:
           $env:HUB_VERSION = "${{ github.ref_name }}".TrimStart("v")
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
           Copy-Item dist\MarketingDataHub-Setup.exe "dist\MarketingDataHub-Setup-$env:HUB_VERSION.exe"
-      - name: Smoke test
-        run: packaging\dist\MarketingDataHub\hub.exe --version
+      - name: Smoke test the GUI and its sync child
+        run: python packaging/smoke_test.py packaging/dist/MarketingDataHub
+      # Add publisher signing before packaging (both bundled EXEs) and after
+      # packaging (installer). Never publish an unsigned fallback.
+      - name: Require trusted publisher signatures
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem packaging/dist/MarketingDataHub-Setup*.exe | ForEach-Object { $_.FullName })
+          ./packaging/verify_signatures.ps1 -Paths (@('packaging/dist/MarketingDataHub/hub.exe', 'packaging/dist/MarketingDataHub/MarketingDataHub.exe') + $installers)
+      - name: Record installer checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem packaging/dist/MarketingDataHub-Setup*.exe | ForEach-Object {
+            $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
+            "$($hash.Hash.ToLower())  $($_.Name)"
+          } | Set-Content packaging/dist/SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             packaging/dist/MarketingDataHub-Setup.exe
             packaging/dist/MarketingDataHub-Setup-*.exe
+            packaging/dist/SHA256SUMS.txt
           generate_release_notes: true

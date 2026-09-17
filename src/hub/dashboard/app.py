@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import threading
-import webbrowser
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import HTMLResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from hub.core.config import load_config
 from hub.dashboard.data import build_dashboard
@@ -35,6 +34,8 @@ def dashboard_router(config_path: str | Path, prefix: str = "",
 
 def create_dashboard_app(config_path: str | Path) -> FastAPI:
     app = FastAPI(title="Marketing Data Hub Dashboard")
+    app.add_middleware(TrustedHostMiddleware,
+                       allowed_hosts=["127.0.0.1", "localhost"])
     app.include_router(dashboard_router(config_path))
 
     @app.get("/")
@@ -46,11 +47,9 @@ def create_dashboard_app(config_path: str | Path) -> FastAPI:
 
 def run_dashboard(config_path: str | Path, port: int = 8773,
                   open_browser: bool = True) -> None:
-    import uvicorn
+    from hub.core.local_server import serve_local
 
     app = create_dashboard_app(config_path)
     url = f"http://127.0.0.1:{port}"
-    if open_browser:
-        threading.Timer(1.0, webbrowser.open, args=[url]).start()
     print(f"Dashboard: {url}  (Ctrl+C to stop)")
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    serve_local(app, port, open_browser=open_browser)

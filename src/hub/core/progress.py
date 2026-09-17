@@ -7,6 +7,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from hub.connectors.base import resolve_targets
 from hub.core.config import HubConfig
@@ -54,6 +55,7 @@ class SyncProgress:
 
     def begin(self, accounts: list[dict]) -> None:
         self._state = {
+            "run_id": uuid4().hex,
             "started_at": datetime.now().isoformat(timespec="seconds"),
             "finished_at": None,
             "accounts": [{**a, "status": "pending", "rows": 0,

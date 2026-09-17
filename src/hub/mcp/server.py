@@ -779,9 +779,9 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             log.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] "
                       f"MCP triggered sync {source!r}\n")
             log.flush()
+            from hub.core.paths import cli_command
             last_spawned["proc"] = subprocess.Popen(
-                [sys.executable, "-m", "hub.cli", "sync", source,
-                 "--config", config_path],
+                cli_command("sync", source, "--unattended", "--config", str(config_path)),
                 stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                 creationflags=(subprocess.CREATE_NO_WINDOW
                                if sys.platform == "win32" else 0))
@@ -871,8 +871,9 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
             log.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] MCP triggered "
                       f"backfill {source!r} from {date_from} to {date_to or 'today'}\n")
             log.flush()
-            cmd = [sys.executable, "-m", "hub.cli", "backfill", source,
-                  "--config", config_path, "--from", date_from]
+            from hub.core.paths import cli_command
+            cmd = cli_command("backfill", source, "--unattended",
+                              "--config", str(config_path), "--from", date_from)
             if date_to:
                 cmd += ["--to", date_to]
             last_spawned["proc"] = subprocess.Popen(

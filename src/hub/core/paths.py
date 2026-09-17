@@ -24,6 +24,19 @@ def python_exe() -> str:
     return exe
 
 
+def cli_command(*args: str) -> list[str]:
+    """Build a CLI child command, including from the windowed frozen launcher."""
+    if getattr(sys, "frozen", False):
+        # Never recurse into the GUI launcher or pass Python's -m to hub.exe.
+        exe = Path(sys.executable)
+        if exe.name.lower() != "hub.exe":
+            exe = exe.with_name("hub.exe")
+            if not exe.is_file():
+                raise FileNotFoundError("Bundled hub.exe is missing. Reinstall Marketing Data Hub.")
+        return [str(exe), *args]
+    return [python_exe(), "-m", "hub.cli", *args]
+
+
 def default_home() -> Path:
     override = os.environ.get(HOME_ENV)
     if override:

@@ -1,4 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+from pathlib import Path
+
+# Collect source and assets from THIS checkout, even if another editable hub
+# installation is present in the build interpreter.
+sys.path.insert(0, str(Path(SPECPATH).parent / "src"))
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 datas = (collect_data_files("hub", includes=["resources/*", "setup_wizard/static/*",

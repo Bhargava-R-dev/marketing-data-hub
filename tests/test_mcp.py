@@ -1,10 +1,33 @@
 import asyncio
+import sys
 from datetime import date
 
 from hub.core.config import ConnectorSettings, HubConfig
 from hub.core.models import UnifiedRow
 from hub.core.storage import Storage
 from hub.mcp.server import build_mcp
+
+
+def test_frozen_mcp_jobs_use_cli_without_python_flags(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    cfg = make_config(tmp_path)
+    seed(cfg)
+    exe = tmp_path / "hub.exe"
+    exe.touch()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe))
+    child = Mock()
+    child.poll.return_value = 0
+    launch = Mock(return_value=child)
+    monkeypatch.setattr("hub.mcp.server.subprocess.Popen", launch)
+    mcp = build_mcp(cfg, config_path=str(tmp_path / "config.yaml"))
+    asyncio.run(mcp._call_trigger_sync(source="gsc"))
+    asyncio.run(mcp._call_backfill(source="gsc", date_from="2026-01-01"))
+    assert launch.call_count == 2
+    for call in launch.call_args_list:
+        argv = call.args[0]
+        assert argv[0] == str(exe)
+        assert "-m" not in argv and "--unattended" in argv
 
 
 def make_config(tmp_path):
