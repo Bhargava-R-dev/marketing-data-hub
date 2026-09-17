@@ -68,6 +68,16 @@ jobs:
             $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
             "$($hash.Hash.ToLower())  $($_.Name)"
           } | Set-Content packaging/dist/SHA256SUMS.txt
+      - name: Upload installer as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            packaging/dist/MarketingDataHub-Setup.exe
+            packaging/dist/MarketingDataHub-Setup-*.exe
+            packaging/dist/SHA256SUMS.txt
+            packaging/dist/SIGNING-STATUS.txt
+          retention-days: 14
       - uses: softprops/action-gh-release@v2
         with:
           files: |
