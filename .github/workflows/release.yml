@@ -80,10 +80,11 @@ jobs:
             packaging/dist/SHA256SUMS.txt
             packaging/dist/SIGNING-STATUS.txt
           retention-days: 14
-      - name: Publish the versioned installer
+      - name: Publish the installers
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            packaging/dist/MarketingDataHub-Setup.exe
             packaging/dist/MarketingDataHub-Setup-${{ steps.build_installer.outputs.version }}.exe
             packaging/dist/SHA256SUMS.txt
             packaging/dist/SIGNING-STATUS.txt
