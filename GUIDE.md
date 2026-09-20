@@ -98,7 +98,7 @@ exact path. If you ever want to start fresh, delete that folder.
 
 > **Windows shortcut:** if you'd rather not use a command window at all,
 > download the installer from
-> <https://growthbybhargava.com/tools/marketing-data-hub>, run it, and skip
+> <https://github.com/Bhargava-R-dev/marketing-data-hub/releases/latest>, run it, and skip
 > straight to Step 7 — the setup page opens by itself.
 
 ### Step 4 — Install the tool
