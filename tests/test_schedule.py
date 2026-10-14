@@ -47,6 +47,7 @@ def test_install_macos_writes_launchd_agent(monkeypatch, tmp_path):
 
     monkeypatch.setattr(schedule.sys, "platform", "darwin")
     monkeypatch.setattr(schedule.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(schedule.os, "getuid", lambda: 501, raising=False)  # no getuid on Windows CI
     calls = []
 
     def fake_run(cmd, **kw):
@@ -71,6 +72,7 @@ def test_install_macos_writes_launchd_agent(monkeypatch, tmp_path):
 def test_remove_macos_deletes_launchd_agent(monkeypatch, tmp_path):
     monkeypatch.setattr(schedule.sys, "platform", "darwin")
     monkeypatch.setattr(schedule.Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(schedule.os, "getuid", lambda: 501, raising=False)
     monkeypatch.setattr(schedule.subprocess, "run", lambda *a, **k: None)
     assert schedule.remove_daily_sync() is False
     plist = schedule.launchd_plist_path()
