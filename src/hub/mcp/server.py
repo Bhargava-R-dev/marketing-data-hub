@@ -347,12 +347,12 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
           report="channels" — NOTE: "channels" groups multiple real sources
           together (e.g. Referral bundles every referring domain). For a
           SPECIFIC named source (a QR code, one referral domain, one
-          campaign) use report="sources" instead with filters={"source": ...}
+          campaign) use report="sources" instead with filters={"traffic_source": ...}
           — comparing a channels number against a literal source (or vice
           versa) is comparing two different things and won't reconcile.
         - one specific literal source/medium (not a channel group), e.g.
           "traffic from qr-codes.io" -> source="ga4", report="sources",
-          filters={"source": "qr-codes.io"}
+          filters={"traffic_source": "qr-codes.io"}
         - landing-page / entry-page analysis, incl. new users per page ->
           source="ga4", report="landing_pages"
         - page behaviour (views, engagement) -> source="ga4", report="pages"

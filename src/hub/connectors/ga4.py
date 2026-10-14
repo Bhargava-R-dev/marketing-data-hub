@@ -35,9 +35,11 @@ GA4_REPORTS: dict[str, FieldRegistry] = {
     ], description="traffic mix by acquisition channel (organic vs paid vs direct...)"),
     "sources": FieldRegistry([
         FieldSpec("date", "date", dimension=True),
-        FieldSpec("source", "sessionSource", dimension=True,
+        FieldSpec("traffic_source", "sessionSource", dimension=True,
                  description="literal traffic source, e.g. 'qr-codes.io', "
-                             "'google', 'facebook.com' - not a grouping"),
+                             "'google', 'facebook.com', '(direct)' - not a grouping. "
+                             "Named traffic_source because 'source' is the "
+                             "connector column (ga4/gsc/...)"),
         FieldSpec("medium", "sessionMedium", dimension=True,
                  description="e.g. 'referral', 'organic', 'cpc'"),
         FieldSpec("sessions", "sessions"),
@@ -50,7 +52,7 @@ GA4_REPORTS: dict[str, FieldRegistry] = {
                    "'channels' Referral/Organic buckets multiple actual sources "
                    "together and will over- or under-count a single named source. "
                    "This was the exact cause of an analysis reporting QR traffic "
-                   "that didn't reconcile: 'Referral' channel != source='qr-codes.io'."),
+                   "that didn't reconcile: 'Referral' channel != traffic_source='qr-codes.io'."),
     "landing_pages": FieldRegistry([
         FieldSpec("date", "date", dimension=True),
         FieldSpec("landing_page", "landingPagePlusQueryString", dimension=True),
