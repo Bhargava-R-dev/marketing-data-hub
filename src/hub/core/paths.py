@@ -27,12 +27,14 @@ def python_exe() -> str:
 def cli_command(*args: str) -> list[str]:
     """Build a CLI child command, including from the windowed frozen launcher."""
     if getattr(sys, "frozen", False):
-        # Never recurse into the GUI launcher or pass Python's -m to hub.exe.
+        # Never recurse into the GUI launcher or pass Python's -m to the CLI.
+        cli_name = "hub.exe" if sys.platform == "win32" else "hub"
         exe = Path(sys.executable)
-        if exe.name.lower() != "hub.exe":
-            exe = exe.with_name("hub.exe")
+        if exe.name.lower() != cli_name:
+            exe = exe.with_name(cli_name)
             if not exe.is_file():
-                raise FileNotFoundError("Bundled hub.exe is missing. Reinstall Marketing Data Hub.")
+                raise FileNotFoundError(
+                    f"Bundled {cli_name} is missing. Reinstall Marketing Data Hub.")
         return [str(exe), *args]
     return [python_exe(), "-m", "hub.cli", *args]
 

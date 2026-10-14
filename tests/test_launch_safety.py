@@ -17,6 +17,7 @@ from hub.setup_wizard.claude_config import mcp_command
 
 @pytest.mark.parametrize("caller", ["hub.exe", "MarketingDataHub.exe"])
 def test_frozen_background_commands_always_use_console_cli(tmp_path, monkeypatch, caller):
+    monkeypatch.setattr(sys, "platform", "win32")
     cli = tmp_path / "hub.exe"
     cli.touch()
     monkeypatch.setattr(sys, "frozen", True, raising=False)
@@ -30,7 +31,22 @@ def test_frozen_background_commands_always_use_console_cli(tmp_path, monkeypatch
     assert "--unattended" in sync_command(config)[1]
 
 
+@pytest.mark.parametrize("caller", ["hub", "MarketingDataHub"])
+def test_frozen_macos_background_commands_use_console_cli(tmp_path, monkeypatch, caller):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    cli = tmp_path / "hub"
+    cli.touch()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / caller))
+    config = tmp_path / "with spaces" / "config.yaml"
+    for exe, args in (sync_command(config), mcp_command(config)):
+        assert exe == str(cli)
+        assert "-m" not in args
+        assert args[-1] == str(config)
+
+
 def test_missing_bundled_cli_fails_without_falling_back_to_gui(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(tmp_path / "MarketingDataHub.exe"))
     with pytest.raises(FileNotFoundError, match="Reinstall"):

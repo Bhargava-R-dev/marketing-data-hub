@@ -1,6 +1,8 @@
 """Exercise the packaged GUI -> CLI sync path without accounts or browser tabs.
 
-Run on Windows after PyInstaller: python packaging/smoke_test.py <bundle-dir>
+Run after PyInstaller: python packaging/smoke_test.py <bundle-dir>
+Windows: the dist/MarketingDataHub folder. macOS: the "Marketing Data Hub.app"
+(or its Contents/MacOS folder).
 """
 import json
 import re
@@ -21,8 +23,11 @@ def request(url, token=None, method="GET"):
 
 
 def main(bundle):
-    gui = bundle / "MarketingDataHub.exe"
-    cli = bundle / "hub.exe"
+    if bundle.suffix == ".app":
+        bundle = bundle / "Contents" / "MacOS"
+    suffix = ".exe" if sys.platform == "win32" else ""
+    gui = bundle / f"MarketingDataHub{suffix}"
+    cli = bundle / f"hub{suffix}"
     subprocess.run([str(cli), "--version"], check=True, timeout=30)
     with tempfile.TemporaryDirectory(prefix="hub smoke ") as folder:
         home = Path(folder)
