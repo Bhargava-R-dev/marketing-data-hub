@@ -13,6 +13,13 @@ subscription, your tokens never leave your computer.
 (or see all versions on the [releases page](https://github.com/Bhargava-R-dev/marketing-data-hub/releases/latest))
 and run it — the setup page opens in your browser.
 
+**Mac:** download the disk image for your Mac —
+[Apple Silicon (M1 and later)](https://github.com/Bhargava-R-dev/marketing-data-hub/releases/latest/download/MarketingDataHub-macOS-arm64.dmg)
+or [Intel](https://github.com/Bhargava-R-dev/marketing-data-hub/releases/latest/download/MarketingDataHub-macOS-x64.dmg)
+— open it and drag *Marketing Data Hub* onto Applications. The first time, macOS
+warns about an unidentified developer: right-click the app, choose **Open**, then
+**Open** again. The setup page opens in your browser.
+
 **Anywhere with Python 3.11+:**
 
 ```bash

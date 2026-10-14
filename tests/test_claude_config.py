@@ -15,6 +15,7 @@ def test_mcp_command_pip(monkeypatch, tmp_path):
 
 
 def test_mcp_command_frozen(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     cli = tmp_path / "hub.exe"
     cli.touch()

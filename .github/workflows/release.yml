@@ -89,3 +89,55 @@ jobs:
             packaging/dist/SHA256SUMS.txt
             packaging/dist/SIGNING-STATUS.txt
           generate_release_notes: true
+  macos:
+    needs: installer
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e . "pyinstaller>=6.10"
+      - name: Build app bundle
+        id: build
+        working-directory: packaging
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          HUB_VERSION="$version" pyinstaller --noconfirm --clean --distpath dist --workpath ../build hub.spec
+      - name: Smoke test the GUI and its sync child
+        run: python packaging/smoke_test.py "packaging/dist/Marketing Data Hub.app"
+      # Unsigned for now (PyInstaller applies an ad-hoc signature). Notarize
+      # with an Apple Developer ID here once one is configured, so Gatekeeper
+      # stops asking users to right-click > Open on first launch.
+      - name: Build disk image
+        working-directory: packaging
+        run: |
+          version="${{ steps.build.outputs.version }}"
+          ./build_dmg.sh "dist/Marketing Data Hub.app" "dist/MarketingDataHub-macOS-${{ matrix.arch }}.dmg"
+          cp "dist/MarketingDataHub-macOS-${{ matrix.arch }}.dmg" "dist/MarketingDataHub-macOS-${{ matrix.arch }}-$version.dmg"
+          cd dist && shasum -a 256 MarketingDataHub-macOS-*-$version.dmg > "SHA256SUMS-macOS-${{ matrix.arch }}.txt"
+      - name: Upload disk image as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer-${{ matrix.arch }}
+          path: |
+            packaging/dist/MarketingDataHub-macOS-${{ matrix.arch }}-${{ steps.build.outputs.version }}.dmg
+            packaging/dist/SHA256SUMS-macOS-${{ matrix.arch }}.txt
+          retention-days: 14
+      - name: Publish the disk images
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            packaging/dist/MarketingDataHub-macOS-${{ matrix.arch }}.dmg
+            packaging/dist/MarketingDataHub-macOS-${{ matrix.arch }}-${{ steps.build.outputs.version }}.dmg
+            packaging/dist/SHA256SUMS-macOS-${{ matrix.arch }}.txt

@@ -508,8 +508,8 @@ def mcp(config: str = CONFIG_OPT):
 def schedule(config: str = CONFIG_OPT,
              hour: int = typer.Option(6, help="Hour of day (0-23) for the daily sync"),
              remove: bool = typer.Option(False, "--remove", help="Unregister the task")):
-    """Run 'hub sync all' automatically every day (Windows Task Scheduler;
-    prints a cron line elsewhere)."""
+    """Run 'hub sync all' automatically every day (Windows Task Scheduler,
+    macOS launchd; prints a cron line elsewhere)."""
     from hub.core.schedule import install_daily_sync, remove_daily_sync
 
     cfg_path = _resolve(config)

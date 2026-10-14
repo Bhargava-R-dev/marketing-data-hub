@@ -12,7 +12,7 @@ def test_frozen_mcp_jobs_use_cli_without_python_flags(tmp_path, monkeypatch):
     from unittest.mock import Mock
     cfg = make_config(tmp_path)
     seed(cfg)
-    exe = tmp_path / "hub.exe"
+    exe = tmp_path / ("hub.exe" if sys.platform == "win32" else "hub")
     exe.touch()
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(exe))
