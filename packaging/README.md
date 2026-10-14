@@ -24,7 +24,7 @@ Local build (needs Python 3.12 and `pip install pyinstaller`; `hdiutil` ships
 with macOS):
 
     cd packaging
-    HUB_VERSION=0.6.2 pyinstaller --noconfirm --clean --distpath dist --workpath ../build hub.spec
+    HUB_VERSION=0.7.1 pyinstaller --noconfirm --clean --distpath dist --workpath ../build hub.spec
     python smoke_test.py "dist/Marketing Data Hub.app"
     ./build_dmg.sh "dist/Marketing Data Hub.app" dist/MarketingDataHub.dmg
 

@@ -92,6 +92,7 @@ jobs:
   macos:
     needs: installer
     strategy:
+      fail-fast: false  # a failing Intel build must not cancel Apple Silicon (or vice versa)
       matrix:
         include:
           - runner: macos-14
@@ -123,7 +124,7 @@ jobs:
         working-directory: packaging
         run: |
           version="${{ steps.build.outputs.version }}"
-          ./build_dmg.sh "dist/Marketing Data Hub.app" "dist/MarketingDataHub-macOS-${{ matrix.arch }}.dmg"
+          bash ./build_dmg.sh "dist/Marketing Data Hub.app" "dist/MarketingDataHub-macOS-${{ matrix.arch }}.dmg"
           cp "dist/MarketingDataHub-macOS-${{ matrix.arch }}.dmg" "dist/MarketingDataHub-macOS-${{ matrix.arch }}-$version.dmg"
           cd dist && shasum -a 256 MarketingDataHub-macOS-*-$version.dmg > "SHA256SUMS-macOS-${{ matrix.arch }}.txt"
       - name: Upload disk image as a build artifact
