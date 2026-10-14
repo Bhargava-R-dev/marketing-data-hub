@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +32,12 @@ class HubConfig(BaseModel):
     db_path: str = "data/hub.duckdb"
     secrets_dir: str = "secrets"
     exports_dir: str = "exports"
+    # live: queries fetch what they need from the APIs (cached briefly, so no
+    # daily sync has to have run). stored: legacy - only read what 'hub sync'
+    # wrote, never call the APIs while answering a query.
+    mode: Literal["live", "stored"] = "live"
+    # live-cache entries not refreshed for this many days are evicted
+    cache_retention_days: int = 45
     # the folder config.yaml lives in (set by load_config): logs, progress and
     # anything else "beside the config" derive from it, never from db_path
     home: str = ""

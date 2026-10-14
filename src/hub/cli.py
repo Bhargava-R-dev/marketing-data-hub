@@ -299,11 +299,19 @@ def export(name: str = typer.Argument("all"), config: str = CONFIG_OPT):
 
 
 def _run_exports(cfg: HubConfig, storage, only: str | None = None) -> None:
+    from hub.core import live
+    from hub.core.presets import resolve_dates
     from hub.destinations.csv_export import run_export
 
     for exp in cfg.exports:
         if only and exp.name != only:
             continue
+        df, dt = resolve_dates(exp.date_preset)
+        refreshed = live.ensure_fresh(cfg, exp.sources, exp.report, df, dt,
+                                      storage=storage)
+        for src, msg in refreshed.errors.items():
+            typer.echo(f"[WARN] {src} could not be refreshed, export uses cached "
+                       f"data: {msg}")
         path = run_export(storage, exp, cfg.exports_dir)
         typer.echo(f"[OK] export {exp.name} -> {path}")
 
@@ -539,3 +547,43 @@ def shortcut(config: str = CONFIG_OPT):
 
 if __name__ == "__main__":
     app()
+
+
+cache_app = typer.Typer(help="Inspect or clear the live-mode cache.")
+app.add_typer(cache_app, name="cache")
+
+
+@cache_app.command("status")
+def cache_status(config: str = CONFIG_OPT):
+    """How much data the live cache holds and how big the database file is."""
+    from pathlib import Path
+
+    from hub.core.storage import Storage
+
+    cfg = _load(config)
+    storage = Storage(cfg.db_path)  # writable: creates/upgrades the schema if needed
+    try:
+        coverage = storage.report_coverage()
+    finally:
+        storage.close()
+    size_mb = Path(cfg.db_path).stat().st_size / 1_000_000
+    typer.echo(f"mode: {cfg.mode}   keeps fetched data {cfg.cache_retention_days} days   "
+               f"database: {size_mb:.1f} MB")
+    for c in coverage:
+        typer.echo(f"  {c['source']}/{c['report']}: {c['rows']} rows, "
+                   f"{c['first_date']} -> {c['latest_date']}")
+
+
+@cache_app.command("clear")
+def cache_clear(config: str = CONFIG_OPT):
+    """Delete everything the live cache fetched (frees disk; refetched on demand).
+    Data from before live mode (older 'hub sync' history) is kept."""
+    from hub.core.storage import Storage
+
+    cfg = _load(config)
+    storage = Storage(cfg.db_path)
+    try:
+        n = storage.clear_cache()
+    finally:
+        storage.close()
+    typer.echo(f"[OK] cleared {n} cached rows")

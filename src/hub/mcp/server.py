@@ -10,6 +10,7 @@ import duckdb
 from fastmcp import FastMCP
 
 from hub.connectors.catalog import connector_class, extra_metric_fields
+from hub.core import live
 from hub.core.config import HubConfig, load_config
 from hub.core.models import CORE_METRICS
 from hub.core.presets import COMPARE_MODES, resolve_dates, shift_range
@@ -249,9 +250,44 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                 "when reporting them, or call backfill(source, date_from=...) first.")
         return result
 
+    def _refresh_live(kwargs: dict) -> dict:
+        """Live mode: pull what this query needs from the APIs first. Returns
+        fields to merge into the response ({} when nothing to report)."""
+        cfg = _cfg()
+        if cfg.mode != "live":
+            return {}
+        try:
+            df, dt = resolve_dates(
+                kwargs.get("date_preset"),
+                date.fromisoformat(kwargs["date_from"]) if kwargs.get("date_from") else None,
+                date.fromisoformat(kwargs["date_to"]) if kwargs.get("date_to") else None)
+        except ValueError:
+            return {}  # let _query_metrics report the bad date properly
+        ranges = [(df, dt)]
+        compare = kwargs.get("compare")
+        if compare in COMPARE_MODES:
+            ranges.append(shift_range(df, dt, compare))
+        source = kwargs.get("source")
+        merged = live.LiveResult()
+        for a, b in ranges:
+            r = live.ensure_fresh(cfg, [source] if source else None,
+                                  kwargs.get("report", "core"), a, b)
+            merged.fetched_days += r.fetched_days
+            merged.errors.update(r.errors)
+            merged.skipped.extend(x for x in r.skipped if x not in merged.skipped)
+        return live.describe(merged)
+
     def _query_metrics_safe(**kwargs) -> dict:
         try:
-            return _with_storage(lambda s: _query_metrics(s, **kwargs))
+            extra = _refresh_live(kwargs)
+            result = _with_storage(lambda s: _query_metrics(s, **kwargs))
+            if extra and "error" not in result:
+                warning = " ".join(w for w in (extra.pop("warning", ""),
+                                               result.get("warning", "")) if w)
+                result.update(extra)
+                if warning:
+                    result["warning"] = warning
+            return result
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
@@ -324,6 +360,13 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
                       compare: str | None = None) -> dict:
         """Query unified marketing metrics, e.g. fields=["date","source","clicks","spend"]
         with date_preset one of last_7d/last_30d/last_90d/this_month/last_month/ytd.
+
+        DATA IS LIVE: the response is fetched from the platforms' APIs as needed
+        (and cached briefly) - there is no sync to run or wait for. The response's
+        `live.fetched_days` says how much was just fetched. If it carries a
+        `warning` saying the refresh failed, the numbers are from older cached
+        data: tell the user, with the reason (usually an expired Google login
+        - fix is `hub login`).
 
         COMPARISONS: pass compare= to get each metric as value, <metric>_prev and
         <metric>_change_pct against a shifted period. Works with any date range:
@@ -905,8 +948,9 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
 
     @mcp.tool()
     def trigger_sync(source: str) -> dict:
-        """Start a sync for one source (or 'all') in the background and return
-        immediately. A full sync takes a few minutes - poll sync_status to see
+        """Rarely needed: query_metrics already fetches live data. Only use this to
+        pre-load a source in bulk. Start a sync for one source (or 'all') in the
+        background and return immediately. A full sync takes a few minutes - poll sync_status to see
         when it finishes, then query. Refuses to start if a sync is already
         running.
 
@@ -928,7 +972,9 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
 
     @mcp.tool()
     def backfill(source: str, date_from: str, date_to: str | None = None) -> dict:
-        """Fill in OLDER history that trigger_sync's rolling window never
+        """Permanently store OLDER history (live mode only keeps recent fetches
+        briefly) - useful for Search Console, whose API only serves ~16 months, or
+        when query_metrics reports complete=false. Fill in history that trigger_sync's rolling window never
         reaches - use this when query_metrics reports complete=false, or a
         gap shows up before the range trigger_sync covers (see its
         sync_window). Runs in the background; poll sync_status for progress.

@@ -349,26 +349,24 @@ async function done() {
       <h1>Marketing Data Hub</h1>
       <p class="muted">This is your home page — it opens from the desktop icon. Everything below is one click.</p>
       <div class="summary-grid">
-        <div><b>${configuredCount()}</b>accounts syncing</div>
-        <div><b>${rows.toLocaleString()}</b>rows in last sync</div>
+        <div><b>${configuredCount()}</b>accounts connected</div>
+        <div><b>${rows.toLocaleString()}</b>rows fetched last time</div>
         <div><b>${S.claude_registered ? "✓" : "–"}</b>Claude connected</div>
-        <div><b id="schedTxt">…</b>daily sync</div>
+        <div><b>Live</b>always current</div>
       </div>
-      <p class="muted">Last sync: ${esc(when)}${failed ? ` — <span class="err">${failed} account(s) failed</span>` : ""}.
-         Data refreshes every morning at 6:00 (the laptop just needs to be on at some point that day).</p>
+      <p class="muted">Your data is fetched live from Google whenever you ask Claude a question (recent answers are
+         kept briefly so repeats are instant) — nothing has to run in the background and the laptop doesn't need
+         to be on at any particular time. Last refresh: ${esc(when)}${failed ? ` — <span class="err">${failed} account(s) failed</span>` : ""}.</p>
       <div class="actions">
         <button class="btn primary" onclick="window.open('/dashboard','_blank')">Open dashboard ↗</button>
         <button class="btn" onclick="go(2)">Add / remove accounts</button>
-        <button class="btn" onclick="startSyncFlow()">Sync now</button>
+        <button class="btn" onclick="startSyncFlow()">Refresh now</button>
         <button class="btn" onclick="go(1)">Google logins</button>
         <button class="btn" onclick="go(4)">Claude</button>
       </div>
       <p class="muted" id="shortcutMsg" style="margin-top:1rem"></p>
       <div class="actions"><button class="btn" onclick="finish()">Close</button></div>
     </div>`;
-  const r = await api("/api/schedule", {method: "POST"});
-  $("schedTxt").textContent = r.installed ? "06:00" : (r.cron_line ? "manual (cron)" : "not set");
-  if (r.error) $("schedTxt").title = r.error;
   const sc = await api("/api/shortcut", {method: "POST"});
   $("shortcutMsg").innerHTML = sc.created?.length
     ? `A <b>Marketing Data Hub</b> icon is on your Desktop and Start Menu — use it to come back here.`

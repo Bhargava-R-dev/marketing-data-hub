@@ -11,6 +11,7 @@ from fastapi.responses import Response
 
 from hub.connectors.catalog import (ALL_CONNECTORS, build_connector, connector_class,
                                     extra_metric_fields)
+from hub.core import live
 from hub.core.config import HubConfig
 from hub.core.models import CORE_DIMENSIONS, CORE_METRICS
 from hub.core.presets import resolve_dates
@@ -97,6 +98,7 @@ def create_app(config: HubConfig, storage: Storage | None = None) -> FastAPI:
         if account_id:
             filters["account_id"] = account_id
         sources = None if source == "all" else [source]
+        refreshed = live.ensure_fresh(config, sources, report, df, dt, storage=storage)
         try:
             rows = storage.query(field_list, df, dt, sources=sources, filters=filters,
                                  report=report,
@@ -108,8 +110,14 @@ def create_app(config: HubConfig, storage: Storage | None = None) -> FastAPI:
             writer = csv.DictWriter(buf, fieldnames=field_list)
             writer.writeheader()
             writer.writerows(rows)
-            return Response(content=buf.getvalue(), media_type="text/csv")
-        return {"date_from": df.isoformat(), "date_to": dt.isoformat(), "data": rows}
+            headers = ({"X-Hub-Warning": live.describe(refreshed)["warning"]}
+                       if refreshed.errors else {})
+            return Response(content=buf.getvalue(), media_type="text/csv",
+                            headers=headers)
+        out = {"date_from": df.isoformat(), "date_to": dt.isoformat(), "data": rows}
+        if refreshed.errors or refreshed.skipped:
+            out.update(live.describe(refreshed))
+        return out
 
     @app.post("/connectors/{source}/sync")
     def trigger_sync(source: str, background: BackgroundTasks) -> dict:
