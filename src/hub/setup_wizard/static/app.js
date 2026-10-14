@@ -317,6 +317,9 @@ async function claude() {
     <div class="card">
       <h1>Connect Claude</h1>
       <p>This registers the hub with Claude so you can ask questions about your data.</p>
+      <p class="muted"><b>Tip:</b> quit Claude completely first (system tray → Quit, not just close the window),
+         then click Connect, then reopen it. If Claude is still running it can write its own copy of its settings
+         over the connection when it closes.</p>
       ${targets || `<p class="err">Claude Desktop wasn't found on this computer.</p>
         <p>Install it from <a href="https://claude.ai/download" target="_blank">claude.ai/download</a>, then come back and click <b>Check again</b>.</p>
         <div class="actions"><button class="btn" onclick="claude()">Check again</button></div>`}
@@ -333,7 +336,7 @@ async function connectClaude(target) {
   if (r.error) { $("claudeMsg").innerHTML = `<span class="err">${esc(r.error)}</span>`; return; }
   await refresh();
   await claude();
-  $("claudeMsg").innerHTML = `<p class="ok">Connected ✓ — now <b>fully quit Claude</b> (system tray → Quit, not just close the window) and reopen it.</p>
+  $("claudeMsg").innerHTML = `<p class="ok">Connected ✓ — now <b>reopen Claude</b> (if it was still running, fully quit it first — system tray → Quit — then reopen; closing it can overwrite this). If it ever shows "–" on the home page, click Connect again.</p>
     <p>Then try asking: <i>"How did my organic traffic do last week?"</i>
     <button class="btn" onclick="navigator.clipboard.writeText('How did my organic traffic do last week?')">Copy question</button></p>`;
 }
