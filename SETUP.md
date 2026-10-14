@@ -196,7 +196,11 @@ uses the right one. `hub login` with no name (re)authorizes the default login.
    `ad_account_ids` (the `act_...` ids from Ads Manager's URL).
 5. `hub doctor` → then `hub sync meta_ads`.
 
-## 8. Automate the daily sync (optional)
+## 8. Automate the daily sync (optional — only for keeping long history)
+
+Not needed for normal use: data is fetched live when you query it (see the
+README). A scheduled sync is only worth it if you want history stored
+permanently or exports produced while nobody is querying.
 
 - **Windows:** Task Scheduler → new daily task → action runs
   `scripts\sync_daily.bat`. The script finds the repo automatically. If the
