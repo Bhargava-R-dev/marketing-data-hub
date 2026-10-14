@@ -38,6 +38,11 @@ _SCHEMA = [
         conversion_value DOUBLE, sessions BIGINT, users BIGINT, extras JSON)""",
     # migration for DBs created before multi-report support (fills 'core')
     "ALTER TABLE metrics ADD COLUMN IF NOT EXISTS report VARCHAR DEFAULT 'core'",
+    # live mode: when each (source, report, day) was last fetched from the API.
+    # Drives cache freshness and lets old data be evicted without ever losing
+    # history the API can no longer return.
+    """CREATE TABLE IF NOT EXISTS cache_days (
+        source VARCHAR, report VARCHAR, date DATE, fetched_at TIMESTAMP)""",
     "CREATE SEQUENCE IF NOT EXISTS sync_runs_seq",
     """CREATE TABLE IF NOT EXISTS sync_runs (
         id BIGINT DEFAULT nextval('sync_runs_seq'), source VARCHAR,
@@ -222,6 +227,78 @@ class Storage:
         return {"days_requested": total_days,
                 "days_with_data": total_days - len(missing),
                 "missing_dates": [d.isoformat() for d in missing]}
+
+    # ---- live cache bookkeeping --------------------------------------
+    def cache_fetched(self, source: str, report: str, date_from: date,
+                      date_to: date) -> dict[date, datetime]:
+        with self._lock:
+            cur = self.conn.execute(
+                """SELECT date, MAX(fetched_at) FROM cache_days
+                   WHERE source = ? AND report = ? AND date BETWEEN ? AND ?
+                   GROUP BY date""", [source, report, date_from, date_to])
+            return {d: t for d, t in cur.fetchall()}
+
+    def days_with_rows(self, source: str, report: str, date_from: date,
+                       date_to: date) -> set[date]:
+        with self._lock:
+            cur = self.conn.execute(
+                """SELECT DISTINCT date FROM metrics
+                   WHERE source = ? AND report = ? AND date BETWEEN ? AND ?""",
+                [source, report, date_from, date_to])
+            return {r[0] for r in cur.fetchall()}
+
+    def mark_fetched(self, source: str, report: str, date_from: date,
+                     date_to: date, when: datetime | None = None) -> None:
+        when = when or datetime.now()
+        with self._lock:
+            self.conn.execute(
+                "DELETE FROM cache_days WHERE source = ? AND report = ? "
+                "AND date BETWEEN ? AND ?", [source, report, date_from, date_to])
+            self.conn.execute(
+                """INSERT INTO cache_days
+                   SELECT ?, ?, d::DATE, ? FROM generate_series(
+                       ?::DATE, ?::DATE, INTERVAL 1 DAY) t(d)""",
+                [source, report, when, date_from, date_to])
+
+    def prune_cache(self, retention_days: int, now: datetime | None = None) -> int:
+        """Evict cached days not refreshed for retention_days, with their
+        metric rows. Returns metric rows deleted. Only touches days this cache
+        fetched (they have a cache_days record): rows from before live mode
+        have none, so older history is never deleted by accident."""
+        cutoff = (now or datetime.now()) - timedelta(days=retention_days)
+        with self._lock:
+            self.conn.execute("BEGIN TRANSACTION")
+            try:
+                n = self.conn.execute(
+                    """SELECT COUNT(*) FROM metrics m WHERE EXISTS (
+                           SELECT 1 FROM cache_days c WHERE c.source = m.source
+                           AND c.report = m.report AND c.date = m.date
+                           AND c.fetched_at < ?)""", [cutoff]).fetchone()[0]
+                self.conn.execute(
+                    """DELETE FROM metrics WHERE EXISTS (
+                           SELECT 1 FROM cache_days c WHERE c.source = metrics.source
+                           AND c.report = metrics.report AND c.date = metrics.date
+                           AND c.fetched_at < ?)""", [cutoff])
+                self.conn.execute("DELETE FROM cache_days WHERE fetched_at < ?", [cutoff])
+                self.conn.execute("COMMIT")
+            except Exception:
+                self.conn.execute("ROLLBACK")
+                raise
+            return n
+
+    def clear_cache(self) -> int:
+        """Drop everything the live cache fetched (rows + bookkeeping)."""
+        with self._lock:
+            n = self.conn.execute(
+                """SELECT COUNT(*) FROM metrics m WHERE EXISTS (
+                       SELECT 1 FROM cache_days c WHERE c.source = m.source
+                       AND c.report = m.report AND c.date = m.date)""").fetchone()[0]
+            self.conn.execute(
+                """DELETE FROM metrics WHERE EXISTS (
+                       SELECT 1 FROM cache_days c WHERE c.source = metrics.source
+                       AND c.report = metrics.report AND c.date = metrics.date)""")
+            self.conn.execute("DELETE FROM cache_days")
+            return n
 
     # ---- sync log -----------------------------------------------------
     def start_sync(self, source: str, date_from: date, date_to: date) -> int:

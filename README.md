@@ -36,11 +36,21 @@ on Mac especially, `pip` on your PATH can point at a different Python than
 and `pip install -e ".[dev]"` instead.)
 
 The setup page walks you through: sign in to Google → tick the GA4 properties /
-Search Console sites you want → watch the first sync load, account by account →
-connect Claude (one click) → done, with the daily 6am sync scheduled for you and
-a **Marketing Data Hub** icon on your Desktop / Start Menu. That icon is the
-everyday entry point: add or remove accounts, sync now, open the dashboard —
-no command window (`hub shortcut` recreates it).
+Search Console sites you want → watch the first fetch load, account by account →
+connect Claude (one click) → done, with a **Marketing Data Hub** icon on your
+Desktop / Start Menu. That icon is the everyday entry point: add or remove
+accounts, refresh, open the dashboard — no command window (`hub shortcut`
+recreates it).
+
+**Data is live.** Nothing syncs in the background and the laptop doesn't need to
+be on at any particular time: when you ask Claude a question (or call the API /
+run an export), the hub fetches what that question needs from Google, keeps it
+briefly so repeat questions are instant, and drops it after 45 days so the
+folder stays small. If Google can't be reached or a login has expired, you still
+get the last cached numbers, plus a plain warning saying why they may be old.
+`hub cache status` / `hub cache clear` show or free the space. Prefer the old
+behaviour (only read what `hub sync` stored)? Set `mode: stored` in
+`config.yaml`.
 
 Your hub lives in `%LOCALAPPDATA%\MarketingDataHub` (Windows) or
 `~/.marketing-data-hub` (Mac/Linux); nothing to configure. A `config.yaml` in
@@ -54,8 +64,9 @@ walkthrough from installing Python through asking your first question — writte
 for non-technical teammates, and made to be shared.
 
 Then ask Claude things like *"How did organic traffic do in June vs May?"* or
-*"Top non-branded search queries this month?"* — or automate a daily 6am sync
-(SETUP.md, step 8).
+*"Top non-branded search queries this month?"*. Want to keep Search Console
+history longer than Google's ~16 months? Store it with `hub backfill`
+(stored data is never evicted), optionally on a schedule (SETUP.md, step 8).
 
 ## Reports (analysis shapes)
 

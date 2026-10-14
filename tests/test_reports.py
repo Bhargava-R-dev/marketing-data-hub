@@ -284,7 +284,8 @@ def test_ga4_sources_report_carries_literal_source_medium():
     """The QR discrepancy traced to 'channels' (Referral) not being the same
     set as an exact source like qr-codes.io - 'sources' answers that exactly."""
     reg = GA4_REPORTS["sources"]
-    assert {"date", "source", "medium", "sessions"} <= set(reg.names())
+    assert {"date", "traffic_source", "medium", "sessions"} <= set(reg.names())
+    assert "source" not in reg.names()  # reserved: it is the connector column
     assert "channel" not in reg.names()  # this is deliberately NOT a grouping
     for s in reg.metrics():
         assert "rate" not in s.name.lower()  # additive-only, same as every report

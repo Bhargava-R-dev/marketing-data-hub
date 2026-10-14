@@ -111,3 +111,37 @@ def test_one_property_failing_does_not_block_the_others(monkeypatch):
     assert errors == [("1", "403 insufficient permission")]
     assert [aid for aid, _ in progressed] == ["2"]
     assert rows == [{"account_id": "2", "account_name": "Good", "date": "2026-07-01"}]
+
+
+def test_sources_report_stores_literal_source_without_colliding_with_connector():
+    """Regression: a colleague's GA4 sync failed every run with
+    "row source '(direct)' does not match connector 'ga4'" because the sources
+    report's dimension was named 'source' - the column that holds the connector
+    id - so one report aborted the whole sync and nothing after it loaded."""
+    from datetime import date
+
+    from hub.connectors.catalog import ALL_CONNECTORS, connector_class
+    from hub.core.normalizer import normalize
+    from hub.core.storage import Storage
+
+    # no report anywhere may reuse the reserved column names
+    for source in ALL_CONNECTORS:
+        for report, registry in connector_class(source).get_reports().items():
+            reserved = {s.name for s in registry.dimensions()} & {"source", "report"}
+            if report != "core":
+                assert not reserved, f"{source}/{report} uses reserved {reserved}"
+
+    rows = normalize("ga4", [
+        {"date": date(2026, 10, 7), "account_id": "1", "account_name": "A",
+         "traffic_source": "(direct)", "medium": "(none)", "sessions": 3},
+        {"date": date(2026, 10, 7), "account_id": "1", "account_name": "A",
+         "traffic_source": "qr-codes.io", "medium": "referral", "sessions": 5},
+    ], report="sources")
+    assert {r.source for r in rows} == {"ga4"}
+    storage = Storage(":memory:")
+    storage.replace_rows("ga4", date(2026, 10, 7), date(2026, 10, 7), rows,
+                         report="sources")
+    got = storage.query(["traffic_source", "sessions"], date(2026, 10, 7),
+                        date(2026, 10, 7), filters={"traffic_source": "qr-codes.io"},
+                        report="sources")
+    assert got == [{"traffic_source": "qr-codes.io", "sessions": 5}]
