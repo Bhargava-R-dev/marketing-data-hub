@@ -104,8 +104,13 @@ def _inject_rates(rows: list[dict], rates: list[str], originally_requested: set[
                 row.pop(key, None)
 
 
-def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
+def build_mcp(config: HubConfig, config_path: str = "config.yaml",
+              web: bool = False, db_path_override: str | None = None) -> FastMCP:
+    """web=True is for serving over the internet (`hub web`): everything that
+    writes, spawns a sync or lists the user's whole Google account is left out,
+    so a leaked address can read reports but cannot change anything."""
     mcp = FastMCP("marketing-data-hub")
+    admin_tool = (lambda: (lambda fn: fn)) if web else mcp.tool
 
     def _cfg() -> HubConfig:
         """Reload config.yaml fresh on every call. The MCP server is a
@@ -114,8 +119,13 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         stale the moment anyone fixes an account mapping or adds a brand
         via 'hub setup'/'hub accounts', causing 403s that look like a
         credentials bug but are really just reading yesterday's settings."""
-        return load_config(config_path)
+        cfg = load_config(config_path)
+        if db_path_override:
+            cfg.db_path = db_path_override
+        return cfg
 
+    if db_path_override:
+        config = config.model_copy(update={"db_path": db_path_override})
     if not Path(config.db_path).exists():
         Storage(config.db_path).close()  # create schema so read-only open works
 
@@ -713,7 +723,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
-    @mcp.tool()
+    @admin_tool()
     def list_identities() -> dict:
         """List the Google logins (identities) that have saved tokens. The hub
         supports multiple Google accounts: 'default' is the original login;
@@ -728,7 +738,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
-    @mcp.tool()
+    @admin_tool()
     def list_available_accounts(source: str | None = None,
                                 identity: str = "default") -> list[dict] | dict:
         """Windsor-style onboarding: list every GA4 property and Search Console
@@ -753,7 +763,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         except Exception as exc:  # noqa: BLE001 - return readable errors to the model
             return {"error": str(exc)}
 
-    @mcp.tool()
+    @admin_tool()
     def add_accounts(source: str, account_ids: list[str],
                      identity: str = "default") -> dict:
         """Add accounts the user selected to config.yaml (source: "ga4" or
@@ -946,7 +956,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         return _trigger_backfill(**kwargs)
     mcp._call_backfill = _call_backfill  # type: ignore[attr-defined]
 
-    @mcp.tool()
+    @admin_tool()
     def trigger_sync(source: str) -> dict:
         """Rarely needed: query_metrics already fetches live data. Only use this to
         pre-load a source in bulk. Start a sync for one source (or 'all') in the
@@ -970,7 +980,7 @@ def build_mcp(config: HubConfig, config_path: str = "config.yaml") -> FastMCP:
         after trigger_sync to know when fresh data is queryable."""
         return _sync_status_safe()
 
-    @mcp.tool()
+    @admin_tool()
     def backfill(source: str, date_from: str, date_to: str | None = None) -> dict:
         """Permanently store OLDER history (live mode only keeps recent fetches
         briefly) - useful for Search Console, whose API only serves ~16 months, or

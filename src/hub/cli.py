@@ -513,6 +513,61 @@ def mcp(config: str = CONFIG_OPT):
 
 
 @app.command()
+def web(config: str = CONFIG_OPT,
+        port: int = typer.Option(8765, help="Local port (a tunnel forwards to it)"),
+        public_url: str | None = typer.Option(
+            None, "--public-url",
+            help="Your tunnel's https address, e.g. https://abc.trycloudflare.com - "
+                 "used only to print the full connector URL"),
+        rotate_token: bool = typer.Option(
+            False, "--rotate-token", help="Replace the secret address (old one stops working)"),
+        keep_cache: bool = typer.Option(
+            False, "--keep-cache",
+            help="Keep fetched data in the normal database instead of a temporary "
+                 "folder that is deleted when this stops")):
+    """Serve the hub to browser chats (claude.ai, ChatGPT) as a remote tool.
+
+    Read-only: tools that change anything or list your whole Google account are
+    left out. Listens on 127.0.0.1 only; put a tunnel in front (see README).
+    The connector address contains a long secret - treat it like a password."""
+    import atexit
+    import shutil
+    import tempfile
+
+    from hub.core.webtoken import load_or_create_token, mcp_path
+    from hub.mcp.server import build_mcp
+
+    cfg = _load(config)
+    token = load_or_create_token(cfg.secrets_dir, rotate=rotate_token)
+    path = mcp_path(token)
+    override = None
+    if not keep_cache:
+        # queries cache what they fetch; keep that out of your real folder so
+        # nothing is left on disk after you stop this
+        tmp = tempfile.mkdtemp(prefix="hub-web-")
+        atexit.register(shutil.rmtree, tmp, ignore_errors=True)
+        override = str(Path(tmp) / "hub.duckdb")
+        import signal
+        import sys
+        # a plain `kill` / closing a service must clean up too, not only Ctrl+C
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    server = build_mcp(cfg, config_path=str(_resolve(config)), web=True,
+                       db_path_override=override)
+    typer.echo("Marketing Data Hub - web mode (read-only)")
+    typer.echo(f"  local:     http://127.0.0.1:{port}{path}")
+    if public_url:
+        typer.echo(f"  connector: {public_url.rstrip('/')}{path}")
+        typer.echo("  Paste the connector address into claude.ai / ChatGPT. Keep it private.")
+    else:
+        typer.echo("  Start a tunnel to this port, then re-run with --public-url <tunnel https "
+                   "address> to print the connector URL.")
+    typer.echo("  Data fetched for answers is " + ("kept in your hub folder."
+               if keep_cache else "held in a temporary folder deleted when you stop."))
+    server.run(transport="http", host="127.0.0.1", port=port, path=path,
+               stateless_http=True, show_banner=False)
+
+
+@app.command()
 def schedule(config: str = CONFIG_OPT,
              hour: int = typer.Option(6, help="Hour of day (0-23) for the daily sync"),
              remove: bool = typer.Option(False, "--remove", help="Unregister the task")):
