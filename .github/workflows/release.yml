@@ -95,7 +95,7 @@ jobs:
       fail-fast: false  # a failing Intel build must not cancel Apple Silicon (or vice versa)
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             arch: arm64
           - runner: macos-15-intel
             arch: x64
