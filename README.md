@@ -63,6 +63,38 @@ one is in use ([SETUP.md](SETUP.md) step 2).
 walkthrough from installing Python through asking your first question — written
 for non-technical teammates, and made to be shared.
 
+## Use it in browser chats (claude.ai, ChatGPT)
+
+Claude Desktop talks to the hub on your own computer. Browser chats can't, so
+`hub web` serves the hub to them as a remote tool, **read-only** (nothing that
+changes accounts or lists your whole Google login is exposed) and with nothing
+kept on disk afterwards.
+
+```bash
+brew install cloudflared                     # one-time (Windows: winget install Cloudflare.cloudflared)
+hub web                                      # terminal 1: prints a local address
+cloudflared tunnel --url http://127.0.0.1:8765   # terminal 2: prints https://<random>.trycloudflare.com
+hub web --public-url https://<random>.trycloudflare.com   # restart terminal 1; prints the connector URL
+```
+
+Paste the printed **connector URL** into the chat's custom-connector / MCP
+setting (claude.ai: Settings → Connectors → Add custom connector; ChatGPT:
+Settings → Connectors → developer mode → create). Which plans allow custom
+connectors is up to each provider. Ask for `query_ga4_live` / `query_gsc_live`
+by name if you want answers fetched straight from Google.
+
+Things to know:
+- **The URL is the password.** It contains a long secret; anyone holding it can
+  read your reports. Don't share or paste it anywhere public. `hub web --rotate-token`
+  replaces it (the old one stops working). Wrong addresses get a plain 404.
+- **Your data passes through the tunnel and the chat provider** when you ask a
+  question. The hub still never stores your Google login anywhere but your computer.
+- **It only works while `hub web` and the tunnel are running** and the computer
+  is awake. The quick-tunnel address changes every time; a free Cloudflare
+  account gives a permanent one.
+- Fetched data is cached in a temporary folder that is deleted when you stop
+  (`--keep-cache` to use your normal folder instead).
+
 Then ask Claude things like *"How did organic traffic do in June vs May?"* or
 *"Top non-branded search queries this month?"*. Want to keep Search Console
 history longer than Google's ~16 months? Store it with `hub backfill`
